@@ -1,0 +1,33 @@
+{
+  "name": "Gemini Core",
+  "author": "Gemini",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n  gl_Position = aPosition;\n  vTexCoord = aTexCoord;\n}",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uAberration;\nuniform float uGlow;\nvoid main() {\n    vec2 uv = vTexCoord;\n    \n    // Aberración cromática (procesamiento de datos)\n    vec2 offset = vec2(uAberration * 0.01, 0.0);\n    float r = texture2D(uTexture, uv + offset).r;\n    float g = texture2D(uTexture, uv).g;\n    float b = texture2D(uTexture, uv - offset).b;\n    vec4 baseColor = vec4(r, g, b, 1.0);\n    \n    // Gradiente representativo (Cyan a Púrpura)\n    vec3 geminiColor = vec3(0.1, 0.6, 1.0) * (1.0 - uv.y) + vec3(0.7, 0.2, 0.9) * uv.y;\n    \n    // Aura Neuronal (Resplandor en los bordes)\n    float dist = distance(uv, vec2(0.5));\n    float glow = smoothstep(0.3, 0.8, dist) * uGlow;\n    \n    // Fusión de la imagen original con el núcleo\n    vec3 finalColor = mix(baseColor.rgb, baseColor.rgb * geminiColor * 2.0, uIntensity) + (glow * geminiColor);\n    \n    gl_FragColor = vec4(finalColor, 1.0);\n}",
+  "params": {
+    "uIntensity": 0.45,
+    "uAberration": 0.35,
+    "uGlow": 0.5
+  },
+  "paramDefs": {
+    "uIntensity": {
+      "label": "Filtro Gemini",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.45
+    },
+    "uAberration": {
+      "label": "Aberración de Datos",
+      "min": 0.0,
+      "max": 1.5,
+      "default": 0.35
+    },
+    "uGlow": {
+      "label": "Aura Neuronal",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5
+    }
+  }
+}
