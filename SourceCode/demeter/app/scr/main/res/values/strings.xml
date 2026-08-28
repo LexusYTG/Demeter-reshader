@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Demeter</string>
+
+    <!-- Estados de captura -->
+    <string name="status_idle">Esperando...</string>
+    <string name="status_capturing">Capturando...</string>
+
+    <!-- Botones principales -->
+    <string name="btn_start">Iniciar</string>
+    <string name="btn_cancel">Cancelar</string>
+    <string name="btn_select">Seleccionar</string>
+    <string name="import_module">Importar módulo</string>
+
+    <!-- Nuevos botones agregados -->
+    <string name="btn_capture_area">Área captura: pantalla completa</string>
+    <string name="btn_overlay_pos">Overlay: pantalla completa</string>
+    <string name="btn_params">⚙ Parámetros</string>
+
+    <!-- Menú de selección -->
+    <string name="menu_test_mode">Modo prueba</string>
+    <string name="menu_select_module">Seleccionar módulo</string>
+
+    <!-- Mensajes de retroalimentación -->
+    <string name="msg_no_modules">No hay módulos instalados</string>
+    <string name="msg_installed">Módulo instalado</string>
+    <string name="msg_uninstalled">Módulo desinstalado</string>
+    <string name="msg_enabled">Módulo activado</string>
+    <string name="msg_disabled">Módulo desactivado</string>
+
+    <!-- Permisos -->
+    <string name="perm_storage_rationale">Necesitamos acceso al almacenamiento para importar módulos.</string>
+    <string name="perm_denied">Permiso denegado.</string>
+
+    <!-- Preview de shader en la pantalla principal -->
+    <string name="preview_label">VISTA PREVIA</string>
+    <string name="preview_hint">Seleccioná un módulo para ver el shader aplicado acá</string>
+</resources>
+
+
