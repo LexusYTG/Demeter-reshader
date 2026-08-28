@@ -1,4 +1,3 @@
-
 ## Categoría: old
 
 ### CRT 80s
@@ -27,4 +26,11 @@
 - **Enlace:** https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/main/Store/shaders/Cells.demeter
 - **Descripción:** ¡Cells! Fluido vivo con dos núcleos gemelos. Colores vibrantes, distorsión psicodélica y latido hipnótico. ¡Verlo es hipnotizante!
 
+---
 
+## Categoría: gaming
+
+### Pro G
+- **Autor:** Lexus
+- **Enlace:** https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/main/Store/shaders/Pro_G.demeter
+- **Descripción:** ¡Pro G! Enfoca y satura tu pantalla con nitidez profesional. Ajusta píxeles, realza colores y dale vida a cada detalle.
