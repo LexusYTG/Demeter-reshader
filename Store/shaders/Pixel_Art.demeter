@@ -1,0 +1,33 @@
+{
+  "name": "Pixel Art",
+  "author": "Lexus",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n  gl_Position = aPosition;\n  vTexCoord = aTexCoord;\n}",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uPixelSize;\nuniform float uGap;\nuniform float uRound;\n\nvoid main() {\n  vec2 uv = vTexCoord;\n\n  // Tamaño del bloque en espacio UV\n  // uPixelSize va de 2 a 32 — cuántos píxeles reales agrupa cada bloque\n  // Asumimos resolución base de 1080p; ajusta el divisor si tu overlay es distinto\n  float blockSize = uPixelSize / 1080.0;\n\n  // Coordenada del bloque al que pertenece este fragmento\n  vec2 block = floor(uv / blockSize);\n\n  // UV del centro del bloque — muestreamos ahí para el color plano\n  vec2 centerUV = (block + 0.5) * blockSize;\n  vec4 color = texture2D(uTexture, centerUV);\n\n  // Posición dentro del bloque, normalizada a [0,1]\n  vec2 inner = fract(uv / blockSize);\n\n  // Gap entre bloques: uGap controla el margen (0 = sin separación)\n  float margin = uGap * 0.5;\n  vec2 clamped = clamp(inner, margin, 1.0 - margin);\n\n  // Máscara de visibilidad: 1 dentro del bloque, 0 en el gap\n  float inBlock = step(margin, inner.x) * step(inner.x, 1.0 - margin)\n                * step(margin, inner.y) * step(inner.y, 1.0 - margin);\n\n  // Esquinas redondeadas opcionales (uRound = 0 = cuadrado puro)\n  if (uRound > 0.01 && inBlock > 0.5) {\n    // Distancia al centro del bloque en espacio [0,1]\n    vec2 d = abs(inner - 0.5) - (0.5 - margin - uRound * 0.5);\n    float cornerDist = length(max(d, 0.0));\n    inBlock *= step(cornerDist, uRound * 0.5);\n  }\n\n  // Color final: el color del bloque donde hay pixel, negro en el gap\n  vec3 result = color.rgb * inBlock;\n\n  gl_FragColor = vec4(result, color.a);\n}",
+  "paramDefs": {
+    "uPixelSize": {
+      "label": "Tamaño de pixel",
+      "min": 2.0,
+      "max": 32.0,
+      "default": 6.0
+    },
+    "uGap": {
+      "label": "Separación entre bloques",
+      "min": 0.0,
+      "max": 0.35,
+      "default": 0.08
+    },
+    "uRound": {
+      "label": "Redondeo de esquinas",
+      "min": 0.0,
+      "max": 0.4,
+      "default": 0.0
+    }
+  },
+  "params": {
+    "uPixelSize": 6.0,
+    "uGap": 0.08,
+    "uRound": 0.0
+  }
+}
