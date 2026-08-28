@@ -1,0 +1,54 @@
+{
+  "name": "CRT 80s",
+  "author": "Lexus",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\n\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\n\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uCurvature;\nuniform float uScanlineIntensity;\nuniform float uScreenHeight;\nuniform float uVignette;\nuniform float uChromaShift;\nuniform float uBrightness;\n\nvec2 barrelDistort(vec2 uv, float amount) {\n    vec2 cc = uv - 0.5;\n    float dist = dot(cc, cc);\n    return uv + cc * dist * amount;\n}\n\nvoid main() {\n    vec2 uv = barrelDistort(vTexCoord, uCurvature);\n\n    // Fuera del area curvada: borde negro, como el marco de un tubo CRT.\n    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {\n        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n        return;\n    }\n\n    // Aberracion cromatica leve (desalineacion de los 3 canales, tipico de tubo viejo).\n    float shift = uChromaShift * 0.01;\n    float r = texture2D(uTexture, uv + vec2(shift, 0.0)).r;\n    float g = texture2D(uTexture, uv).g;\n    float b = texture2D(uTexture, uv - vec2(shift, 0.0)).b;\n    vec3 color = vec3(r, g, b);\n\n    // Lineas de barrido (scanlines).\n    float scanline = sin(uv.y * uScreenHeight * 3.14159265);\n    scanline = 0.5 + 0.5 * scanline;\n    color *= mix(1.0, scanline, uScanlineIntensity);\n\n    // Vineta: oscurece las esquinas como un tubo real.\n    vec2 vc = uv - 0.5;\n    float vig = 1.0 - dot(vc, vc) * uVignette;\n    color *= clamp(vig, 0.0, 1.0);\n\n    // Compensacion de brillo (las scanlines y la vineta oscurecen la imagen).\n    color *= uBrightness;\n\n    gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);\n}\n",
+  "params": {
+    "uCurvature": 0.08,
+    "uScanlineIntensity": 0.5,
+    "uScreenHeight": 480.0,
+    "uVignette": 0.6,
+    "uChromaShift": 1.5,
+    "uBrightness": 1.15
+  },
+  "paramDefs": {
+    "uCurvature": {
+      "label": "Curvatura de pantalla",
+      "min": 0.0,
+      "max": 0.3,
+      "default": 0.08
+    },
+    "uScanlineIntensity": {
+      "label": "Intensidad lineas de barrido",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5
+    },
+    "uScreenHeight": {
+      "label": "Lineas CRT (resolucion V)",
+      "min": 100.0,
+      "max": 1200.0,
+      "default": 480.0
+    },
+    "uVignette": {
+      "label": "Vineta",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 0.6
+    },
+    "uChromaShift": {
+      "label": "Aberracion cromatica",
+      "min": 0.0,
+      "max": 5.0,
+      "default": 1.5
+    },
+    "uBrightness": {
+      "label": "Brillo",
+      "min": 0.5,
+      "max": 2.0,
+      "default": 1.15
+    }
+  }
+}
