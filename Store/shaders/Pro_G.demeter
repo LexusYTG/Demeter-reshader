@@ -1,0 +1,40 @@
+{
+  "name": "ProG",
+  "author": "Lexus",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\n\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\n\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uPixelSizeX;\nuniform float uPixelSizeY;\nuniform float uSharpness;\nuniform float uSaturation;\n\nvoid main() {\n    vec2 texel = vec2(uPixelSizeX, uPixelSizeY);\n    vec3 center = texture2D(uTexture, vTexCoord).rgb;\n\n    vec3 n = texture2D(uTexture, vTexCoord + vec2( 0.0,     -texel.y)).rgb;\n    vec3 s = texture2D(uTexture, vTexCoord + vec2( 0.0,      texel.y)).rgb;\n    vec3 e = texture2D(uTexture, vTexCoord + vec2( texel.x,  0.0)).rgb;\n    vec3 w = texture2D(uTexture, vTexCoord + vec2(-texel.x,  0.0)).rgb;\n\n    vec3 blur = (n + s + e + w) * 0.25;\n    vec3 sharpened = center + (center - blur) * uSharpness;\n\n    float gray = dot(sharpened, vec3(0.299, 0.587, 0.114));\n    vec3 result = mix(vec3(gray), sharpened, uSaturation);\n\n    gl_FragColor = vec4(clamp(result, 0.0, 1.0), 1.0);\n}\n",
+  "params": {
+    "uPixelSizeX": 0.001,
+    "uPixelSizeY": 0.0006,
+    "uSharpness": 0.6,
+    "uSaturation": 1.15
+  },
+  "paramDefs": {
+    "uPixelSizeX": {
+      "label": "Tamano de pixel X",
+      "min": 0.0002,
+      "max": 0.004,
+      "default": 0.001
+    },
+    "uPixelSizeY": {
+      "label": "Tamano de pixel Y",
+      "min": 0.0002,
+      "max": 0.004,
+      "default": 0.0006
+    },
+    "uSharpness": {
+      "label": "Nitidez",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 0.6
+    },
+    "uSaturation": {
+      "label": "Saturacion",
+      "min": 0.5,
+      "max": 1.8,
+      "default": 1.15
+    }
+  }
+}
