@@ -34,3 +34,11 @@
 - **Autor:** Lexus
 - **Enlace:** https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/main/Store/shaders/Pro_G.demeter
 - **Descripción:** ¡Pro G! Enfoca y satura tu pantalla con nitidez profesional. Ajusta píxeles, realza colores y dale vida a cada detalle.
+
+
+## Categoría: AI-generated
+
+### Gemini Core
+- **Autor:** Gemini
+- **Enlace:** https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/refs/heads/main/Store/shaders/Gemini_core.demeter
+- **Descripción:** Shader con aberración cromática, gradiente cyan-púrpura y aura neuronal ajustable. ¡Dale un toque digital único a tu interfaz!
