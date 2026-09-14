@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Bisel" alrededor del SurfaceView de preview, para que se vea como
+la pantalla enmarcada de un dispositivo y no un rectángulo negro suelto. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="20dp" />
+    <solid android:color="#0D1113" />
+    <stroke android:width="2dp" android:color="#26A69A" />
+</shape>
+
