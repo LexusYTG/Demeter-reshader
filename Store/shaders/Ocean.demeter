@@ -1,0 +1,33 @@
+{
+  "name": "Ocean",
+  "author": "Lexus",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n  gl_Position = aPosition;\n  vTexCoord = aTexCoord;\n}",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uTime;\nuniform float uIntensity;\nuniform float uSpeed;\n\nfloat hash(vec2 p) {\n  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);\n}\n\nfloat noise(vec2 p) {\n  vec2 i = floor(p);\n  vec2 f = fract(p);\n  f = f * f * (3.0 - 2.0 * f);\n  float a = hash(i);\n  float b = hash(i + vec2(1.0, 0.0));\n  float c = hash(i + vec2(0.0, 1.0));\n  float d = hash(i + vec2(1.0, 1.0));\n  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\n\nfloat fbm(vec2 p) {\n  float v = 0.0;\n  float amp = 0.5;\n  float freq = 1.0;\n  for (int i = 0; i < 5; i++) {\n    v += amp * noise(p * freq);\n    freq *= 2.0;\n    amp *= 0.5;\n  }\n  return v;\n}\n\nvoid main() {\n  vec2 uv = vTexCoord;\n  float t = uTime * uSpeed;\n\n  vec2 p = uv * 3.0;\n  float n1 = fbm(p + vec2(t * 0.3, t * 0.2));\n  float n2 = fbm(p + vec2(-t * 0.2, t * 0.35) + n1);\n  float pattern = fbm(p + n2);\n\n  vec2 dist = vec2(\n    fbm(uv * 4.0 + vec2(t * 0.15, 0.0)) - 0.5,\n    fbm(uv * 4.0 + vec2(0.0, t * 0.15)) - 0.5\n  ) * uIntensity * 0.04;\n\n  vec4 original = texture2D(uTexture, uv + dist);\n\n  vec3 claudeA = vec3(0.55, 0.78, 0.95);\n  vec3 claudeB = vec3(0.78, 0.62, 0.95);\n  vec3 claudeC = vec3(0.45, 0.88, 0.82);\n\n  vec3 tint = mix(claudeA, claudeB, pattern);\n  tint = mix(tint, claudeC, n2 * 0.5);\n\n  float luminance = dot(original.rgb, vec3(0.299, 0.587, 0.114));\n  float blend = uIntensity * 0.0078;\n\n  float pulse = 0.5 + 0.5 * sin(t * 1.2 + pattern * 6.28);\n  float rim = smoothstep(0.3, 0.7, pattern) * pulse * uIntensity * 0.004;\n\n  vec3 result = original.rgb + tint * blend + vec3(rim);\n  result = mix(original.rgb, result, uIntensity / 100.0);\n\n  gl_FragColor = vec4(result, original.a);\n}",
+  "paramDefs": {
+    "uTime": {
+      "label": "Tiempo",
+      "min": 0.0,
+      "max": 1000.0,
+      "default": 0.0
+    },
+    "uIntensity": {
+      "label": "Intensidad",
+      "min": 0.0,
+      "max": 100.0,
+      "default": 55.0
+    },
+    "uSpeed": {
+      "label": "Velocidad",
+      "min": 0.1,
+      "max": 3.0,
+      "default": 0.6
+    }
+  },
+  "params": {
+    "uTime": 0.0,
+    "uIntensity": 55.0,
+    "uSpeed": 0.6
+  }
+}
