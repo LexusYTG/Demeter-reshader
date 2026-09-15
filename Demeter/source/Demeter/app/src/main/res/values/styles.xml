@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+	Antes: Theme.Holo.Light -> los AlertDialog (Parametros, Seleccionar modulo,
+	errores de compilacion) salian con fondo blanco, desentonando con el resto
+	de la app que es negra. Theme.Holo ya trae dialogs oscuros "gratis", sin
+	tocar cada AlertDialog.Builder del codigo.
+    -->
+    <style name="AppTheme" parent="@android:style/Theme.Holo">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>
+

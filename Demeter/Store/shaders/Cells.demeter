@@ -1,0 +1,33 @@
+{
+  "name": "cells",
+  "author": "Lexus",
+  "version": "2.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n  gl_Position = aPosition;\n  vTexCoord = aTexCoord;\n}",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uTime;\nuniform float uIntensity;\nuniform float uSpeed;\n\n#define PI 3.14159265\n\n// Paleta fluida de Gemini: azul profundo <-> violeta <-> celeste\nvec3 gemColor(float t) {\n  vec3 a = vec3(0.10, 0.40, 0.98);\n  vec3 b = vec3(0.55, 0.18, 0.95);\n  vec3 c = vec3(0.05, 0.75, 0.98);\n  vec3 d = vec3(0.80, 0.30, 0.90);\n  t = fract(t);\n  if (t < 0.33) return mix(a, b, t * 3.0);\n  if (t < 0.66) return mix(b, c, (t - 0.33) * 3.0);\n  return mix(c, d, (t - 0.66) * 3.0);\n}\n\n// Smooth noise 2D\nfloat hash(vec2 p) {\n  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);\n}\nfloat noise(vec2 p) {\n  vec2 i = floor(p), f = fract(p);\n  f = f * f * (3.0 - 2.0 * f);\n  return mix(\n    mix(hash(i), hash(i + vec2(1,0)), f.x),\n    mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x),\n    f.y);\n}\n\n// Dos centros orbitando entre si — la dualidad Gemini\nvec2 centerA(float t) { return vec2(cos(t * 0.7) * 0.22, sin(t * 0.5) * 0.18); }\nvec2 centerB(float t) { return -centerA(t); }\n\n// Campo de distancia firmada a una forma fluida:\n// interpola entre dos centros con deformación de ruido\nfloat fluidField(vec2 uv, float t) {\n  vec2 cA = centerA(t);\n  vec2 cB = centerB(t);\n\n  float dA = length(uv - cA);\n  float dB = length(uv - cB);\n\n  // Metaball suave: las dos formas se fusionan cuando se acercan\n  float sA = 1.0 / (dA * dA + 0.001);\n  float sB = 1.0 / (dB * dB + 0.001);\n  float meta = sA + sB;\n\n  // Deformación con ruido para dar textura liquida\n  float n = noise(uv * 3.0 + vec2(t * 0.3, t * 0.2)) - 0.5;\n  float n2 = noise(uv * 5.5 - vec2(t * 0.2, t * 0.35)) - 0.5;\n\n  return meta + n * 1.2 + n2 * 0.6;\n}\n\nvoid main() {\n  vec2 uv = vTexCoord;\n  vec4 original = texture2D(uTexture, uv);\n\n  // Espacio centrado con aspecto 1:1\n  vec2 p = uv * 2.0 - 1.0;\n\n  float t = uTime * uSpeed;\n\n  // Campo fluido principal\n  float field = fluidField(p, t);\n\n  // Umbral: define el borde del fluido\n  float threshold = 5.5;\n  float edge = field - threshold;\n\n  // Capas de profundidad: el fluido tiene interior y borde brillante\n  float interior  = smoothstep(0.0,  1.8, edge);\n  float rim       = exp(-abs(edge) * 3.5) * 1.4;\n  float deepCore  = smoothstep(2.5, 6.0, edge);\n\n  // Coordenada de color: varía según posición y tiempo para que\n  // las dos mitades tengan colores distintos que van convergiendo\n  vec2 cA = centerA(t);\n  vec2 cB = centerB(t);\n  float tA = length(p - cA);\n  float tB = length(p - cB);\n  float colorCoord = tA / (tA + tB + 0.001); // 0 = cerca de A, 1 = cerca de B\n  colorCoord = fract(colorCoord + t * 0.06);\n\n  vec3 fluidColor = gemColor(colorCoord);\n  vec3 rimColor   = gemColor(colorCoord + 0.33); // color complementario en el borde\n  vec3 coreColor  = vec3(0.85, 0.92, 1.0);       // núcleo casi blanco, frio\n\n  // Pulso de respiración doble: cada centro late a su ritmo\n  float breathA = 0.5 + 0.5 * sin(t * 1.3);\n  float breathB = 0.5 + 0.5 * sin(t * 1.3 + PI);\n  float breath = mix(breathA, breathB, colorCoord);\n\n  float blend = uIntensity / 100.0;\n\n  // Distorsión de imagen: las dos masas curvan el espacio a su alrededor\n  float warpStrength = blend * 0.028;\n  vec2 warpDir = normalize(p - mix(cA, cB, 0.5) + vec2(0.001));\n  float warpAmount = interior * warpStrength * (1.0 + breath * 0.4);\n  vec4 warped = texture2D(uTexture, uv + warpDir * warpAmount);\n\n  // Composicion: imagen distorsionada + fluido encima\n  vec3 result = warped.rgb;\n  result = mix(result, fluidColor, interior * blend * 0.55);\n  result += rimColor   * rim      * blend * 0.50 * (0.8 + breath * 0.2);\n  result += coreColor  * deepCore * blend * 0.30;\n\n  gl_FragColor = vec4(result, original.a);\n}",
+  "paramDefs": {
+    "uTime": {
+      "label": "Tiempo",
+      "min": 0.0,
+      "max": 1000.0,
+      "default": 0.0
+    },
+    "uIntensity": {
+      "label": "Intensidad",
+      "min": 0.0,
+      "max": 100.0,
+      "default": 65.0
+    },
+    "uSpeed": {
+      "label": "Velocidad",
+      "min": 0.1,
+      "max": 3.0,
+      "default": 0.7
+    }
+  },
+  "params": {
+    "uTime": 0.0,
+    "uIntensity": 65.0,
+    "uSpeed": 0.7
+  }
+}
