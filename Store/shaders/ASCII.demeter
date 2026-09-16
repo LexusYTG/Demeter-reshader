@@ -1,0 +1,20 @@
+{
+  "name": "ASCII",
+  "author": "Ale",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uDensity;\nuniform float uContrast;\nuniform float uColorize;\nuniform float uBg;\n\nfloat glyph(vec2 p, float idx) {\n    float vbar  = step(abs(p.x - 0.5), 0.10);\n    float hbar  = step(abs(p.y - 0.5), 0.10);\n    float diag  = step(abs(p.x - p.y), 0.12);\n    float diag2 = step(abs(p.x + p.y - 1.0), 0.12);\n    float dot_  = 1.0 - step(0.22, distance(p, vec2(0.5)));\n    if (idx < 0.5) return dot_;\n    if (idx < 1.5) return hbar;\n    if (idx < 2.5) return vbar;\n    if (idx < 3.5) return max(hbar, vbar);\n    if (idx < 4.5) return max(diag, diag2);\n    if (idx < 5.5) return max(max(hbar, vbar), diag);\n    if (idx < 6.5) return max(max(hbar, vbar), max(diag, diag2));\n    return 1.0;\n}\n\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 cellId   = floor(uv * uDensity);\n    vec2 inCell   = fract(uv * uDensity);\n    vec2 sampleUV = (cellId + 0.5) / uDensity;\n    vec3 col = texture2D(uTexture, sampleUV).rgb;\n    float luma = dot(col, vec3(0.299, 0.587, 0.114));\n    luma = clamp((luma - 0.5) * uContrast + 0.5, 0.0, 1.0);\n    float idx  = floor(luma * 7.99);\n    float mask = glyph(inCell, idx);\n    vec3 ink = mix(vec3(1.0), col, uColorize);\n    vec3 bg  = vec3(uBg * 0.08);\n    vec3 outCol = mix(bg, ink, mask);\n    gl_FragColor = vec4(outCol, 1.0);\n}\n",
+  "params": {
+    "uDensity": 90.0,
+    "uContrast": 1.5,
+    "uColorize": 0.3,
+    "uBg": 0.0
+  },
+  "paramDefs": {
+    "uDensity":  { "label": "Densidad",       "min": 30.0,  "max": 220.0, "default": 90.0  },
+    "uContrast": { "label": "Contraste",      "min": 0.5,   "max": 3.0,   "default": 1.5   },
+    "uColorize": { "label": "Color original", "min": 0.0,   "max": 1.0,   "default": 0.3   },
+    "uBg":       { "label": "Fondo",          "min": 0.0,   "max": 1.0,   "default": 0.0   }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "Drunk",
+  "author": "AnaCronix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uWobble;\nuniform float uDouble;\nuniform float uBlur;\nuniform float uSaturation;\nuniform float uSpeed;\nuniform float uTime;\n\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 center = uv - 0.5;\n    \n    float w1 = sin(uv.y * 12.0 + uTime * uSpeed * 2.0);\n    float w2 = cos(uv.x *  9.0 + uTime * uSpeed * 1.7);\n    vec2 offset = vec2(w1, w2) * uWobble * 0.02;\n    \n    vec2 uvBase = uv + offset;\n    vec2 uvA = uvBase + vec2(uDouble * 0.004, 0.0);\n    vec2 uvB = uvBase - vec2(uDouble * 0.004, 0.0);\n    \n    vec3 colA = texture2D(uTexture, uvA).rgb;\n    vec3 colB = texture2D(uTexture, uvB).rgb;\n    vec3 col  = mix(colA, colB, 0.5);\n    \n    float bs = uBlur * 0.003;\n    vec3 b1 = texture2D(uTexture, uvBase + vec2(bs, 0.0)).rgb;\n    vec3 b2 = texture2D(uTexture, uvBase - vec2(bs, 0.0)).rgb;\n    vec3 b3 = texture2D(uTexture, uvBase + vec2(0.0, bs)).rgb;\n    vec3 b4 = texture2D(uTexture, uvBase - vec2(0.0, bs)).rgb;\n    col = (col + b1 + b2 + b3 + b4) * 0.2;\n    \n    float luma = dot(col, vec3(0.299, 0.587, 0.114));\n    col = mix(vec3(luma), col, uSaturation);\n    \n    float v = 1.0 - dot(center, center) * 0.6;\n    col *= v;\n    \n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": {
+    "uWobble": 1.0,
+    "uDouble": 1.0,
+    "uBlur": 1.0,
+    "uSaturation": 1.3,
+    "uSpeed": 1.0
+  },
+  "paramDefs": {
+    "uWobble":     { "label": "Ondulación",    "min": 0.0, "max": 3.0, "default": 1.0 },
+    "uDouble":     { "label": "Visión doble",  "min": 0.0, "max": 3.0, "default": 1.0 },
+    "uBlur":       { "label": "Desenfoque",    "min": 0.0, "max": 3.0, "default": 1.0 },
+    "uSaturation": { "label": "Saturación",    "min": 0.0, "max": 2.5, "default": 1.3 },
+    "uSpeed":      { "label": "Velocidad",     "min": 0.1, "max": 3.0, "default": 1.0 },
+    "uTime":       { "label": "Tiempo",        "min": 0.0, "max": 100.0, "default": 0.0 }
+  }
+}

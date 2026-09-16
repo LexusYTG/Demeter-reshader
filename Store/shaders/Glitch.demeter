@@ -1,0 +1,22 @@
+{
+  "name": "Glitch",
+  "author": "AnaCronix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uBlockSize;\nuniform float uSpeed;\nuniform float uSplit;\nuniform float uTime;\n\nfloat hash1(float x) { return fract(sin(x * 12.9898) * 43758.5453); }\nfloat hash2(vec2 p)  { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n\nvoid main() {\n    vec2 uv = vTexCoord;\n    float tSlice  = floor(uTime * uSpeed * 8.0);\n    float stutter = hash1(tSlice);\n    \n    float blockH = max(uBlockSize, 0.005);\n    float row    = floor(uv.y / blockH);\n    float rowRnd = hash2(vec2(row, tSlice));\n    \n    float displace = 0.0;\n    if (rowRnd > 0.7) {\n        displace = (hash2(vec2(row, tSlice + 17.0)) - 0.5) * 0.15;\n    }\n    uv.x += displace * uIntensity;\n    \n    float bigGlitch = step(0.90, stutter);\n    uv.x += bigGlitch * (hash2(vec2(tSlice, 0.0)) - 0.5) * 0.08;\n    \n    float split = uSplit * 0.005 * uIntensity + bigGlitch * 0.008;\n    float r = texture2D(uTexture, uv + vec2(split, 0.0)).r;\n    float g = texture2D(uTexture, uv).g;\n    float b = texture2D(uTexture, uv - vec2(split, 0.0)).b;\n    vec3 col = vec3(r, g, b);\n    \n    float scan = 1.0 - 0.12 * step(0.5, fract(uv.y * 700.0));\n    col *= scan;\n    \n    float noise = hash2(uv * 400.0 + tSlice);\n    col += (noise - 0.5) * 0.10 * uIntensity;\n    \n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": {
+    "uIntensity": 0.7,
+    "uBlockSize": 0.02,
+    "uSpeed": 1.0,
+    "uSplit": 1.0
+  },
+  "paramDefs": {
+    "uIntensity": { "label": "Intensidad",     "min": 0.0,   "max": 1.5,  "default": 0.7  },
+    "uBlockSize": { "label": "Tamaño bloque",  "min": 0.005, "max": 0.1,  "default": 0.02 },
+    "uSpeed":     { "label": "Velocidad",      "min": 0.1,   "max": 4.0,  "default": 1.0  },
+    "uSplit":     { "label": "Separación RGB", "min": 0.0,   "max": 3.0,  "default": 1.0  },
+    "uTime":      { "label": "Tiempo",         "min": 0.0,   "max": 100.0,"default": 0.0  }
+  }
+}
+

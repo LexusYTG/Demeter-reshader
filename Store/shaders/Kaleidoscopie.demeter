@@ -1,0 +1,22 @@
+{
+  "name": "Kaleidoscope",
+  "author": "AnaCronix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "description": "Espejo radial infinito: la imagen se replica en N sectores simétricos y rota lentamente. Hipnótico y mareador a partes iguales.",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uSegments;\nuniform float uRotate;\nuniform float uZoom;\nuniform float uSpeed;\nuniform float uTime;\n\nvoid main() {\n    vec2 uv = vTexCoord - 0.5;\n    uv /= uZoom;\n    \n    float r = length(uv);\n    float a = atan(uv.y, uv.x) + uRotate + uTime * uSpeed * 0.15;\n    \n    float seg = 6.2831853 / max(uSegments, 2.0);\n    a = mod(a, seg);\n    a = abs(a - seg * 0.5);\n    \n    vec2 kuv = vec2(cos(a), sin(a)) * r + 0.5;\n    vec3 col = texture2D(uTexture, kuv).rgb;\n    \n    float v = 1.0 - r * 0.6;\n    col *= v;\n    \n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": {
+    "uSegments": 8.0,
+    "uRotate": 0.0,
+    "uZoom": 1.2,
+    "uSpeed": 1.0
+  },
+  "paramDefs": {
+    "uSegments": { "label": "Segmentos", "min": 3.0,  "max": 24.0, "default": 8.0  },
+    "uRotate":   { "label": "Rotación",  "min": 0.0,  "max": 6.28, "default": 0.0  },
+    "uZoom":     { "label": "Zoom",      "min": 0.5,  "max": 3.0,  "default": 1.2  },
+    "uSpeed":    { "label": "Velocidad", "min": 0.0,  "max": 3.0,  "default": 1.0  },
+    "uTime":     { "label": "Tiempo",    "min": 0.0,  "max": 100.0,"default": 0.0  }
+  }
+}

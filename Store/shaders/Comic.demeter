@@ -1,0 +1,23 @@
+{
+  "name": "Comic",
+  "author": "Ale",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "description": "Estilo cómic: colores planos por niveles, trama de puntos halftone y contorno negro tipo entintado.",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uLevels;\nuniform float uOutline;\nuniform float uHalftone;\nuniform float uDots;\nuniform float uTexelSize;\n\nfloat luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }\n\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 texel = vec2(uTexelSize, uTexelSize);\n    \n    vec3 col = texture2D(uTexture, uv).rgb;\n    \n    col = floor(col * uLevels) / uLevels;\n    \n    float dotSize = max(uDots, 1.0) * 0.012;\n    vec2 grid = fract(uv / dotSize) - 0.5;\n    float l = luma(col);\n    float dotRadius = 0.5 - l * 0.6;\n    float dotMask = step(length(grid), dotRadius);\n    vec3 halftone = mix(vec3(0.0), col, dotMask);\n    col = mix(col, halftone, uHalftone);\n    \n    float tl = luma(texture2D(uTexture, uv + vec2(-texel.x, -texel.y)).rgb);\n    float tc = luma(texture2D(uTexture, uv + vec2( 0.0,     -texel.y)).rgb);\n    float tr = luma(texture2D(uTexture, uv + vec2( texel.x, -texel.y)).rgb);\n    float ml = luma(texture2D(uTexture, uv + vec2(-texel.x,  0.0)).rgb);\n    float mr = luma(texture2D(uTexture, uv + vec2( texel.x,  0.0)).rgb);\n    float bl = luma(texture2D(uTexture, uv + vec2(-texel.x,  texel.y)).rgb);\n    float bc = luma(texture2D(uTexture, uv + vec2( 0.0,      texel.y)).rgb);\n    float br = luma(texture2D(uTexture, uv + vec2( texel.x,  texel.y)).rgb);\n    \n    float gx = -tl - 2.0*ml - bl + tr + 2.0*mr + br;\n    float gy = -tl - 2.0*tc - tr + bl + 2.0*bc + br;\n    float edge = smoothstep(0.15, 0.55, sqrt(gx*gx + gy*gy));\n    \n    vec3 outCol = mix(col, vec3(0.0), edge * uOutline);\n    gl_FragColor = vec4(outCol, 1.0);\n}\n",
+  "params": {
+    "uLevels": 5.0,
+    "uOutline": 0.9,
+    "uHalftone": 0.6,
+    "uDots": 1.0,
+    "uTexelSize": 0.002
+  },
+  "paramDefs": {
+    "uLevels":    { "label": "Niveles",     "min": 2.0,   "max": 12.0,  "default": 5.0   },
+    "uOutline":   { "label": "Contorno",    "min": 0.0,   "max": 1.0,   "default": 0.9   },
+    "uHalftone":  { "label": "Halftone",    "min": 0.0,   "max": 1.0,   "default": 0.6   },
+    "uDots":      { "label": "Tamaño punto","min": 0.3,   "max": 3.0,   "default": 1.0   },
+    "uTexelSize": { "label": "Grosor línea","min": 0.0005,"max": 0.006, "default": 0.002 }
+  }
+}

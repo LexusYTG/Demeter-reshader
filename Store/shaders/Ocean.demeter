@@ -1,6 +1,6 @@
 {
   "name": "Ocean",
-  "author": "Lexus",
+  "author": "LexusYTG",
   "version": "1.0",
   "type": "MODIFIER",
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n  gl_Position = aPosition;\n  vTexCoord = aTexCoord;\n}",

@@ -1,0 +1,17 @@
+{
+  "name": "Matrix",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uDensity;\nuniform float uSpeed;\nuniform float uTime;\n\nfloat hash1(float x) { return fract(sin(x * 12.9898) * 43758.5453); }\nfloat hash2(vec2 p)  { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n\nfloat glyph(vec2 p, float r) {\n    float vbar  = step(abs(p.x - 0.5), 0.10);\n    float hbar  = step(abs(p.y - 0.5), 0.10);\n    float diag  = step(abs(p.x - p.y), 0.12);\n    float diag2 = step(abs(p.x + p.y - 1.0), 0.12);\n    float dot_  = 1.0 - step(0.22, distance(p, vec2(0.5)));\n    float idx = floor(r * 4.0);\n    if (idx < 1.0) return max(vbar, hbar);\n    if (idx < 2.0) return dot_;\n    if (idx < 3.0) return max(diag, diag2);\n    return max(max(vbar, hbar), max(diag, diag2));\n}\n\nvoid main() {\n    vec2 uv = vTexCoord;\n    float cols = uDensity;\n    float colRnd = hash1(floor(uv.x * cols));\n    float colSpeed = 0.5 + colRnd * 0.9;\n    \n    float scroll = uv.y + uTime * uSpeed * colSpeed + colRnd * 20.0;\n    vec2 scrolled = vec2(uv.x * cols, scroll * cols * 1.7);\n    vec2 cellId = floor(scrolled);\n    vec2 inCell = fract(scrolled);\n    \n    float glyphRnd = hash2(cellId);\n    float m = glyph(inCell, glyphRnd);\n    \n    float head = fract(uTime * uSpeed * colSpeed * 0.2 + colRnd * 5.0);\n    float dy = uv.y - head;\n    dy = dy - floor(dy + 0.5);\n    \n    float bright;\n    if (dy <= 0.0) bright = exp(dy * 10.0);\n    else           bright = 0.0;\n    bright = max(bright, exp(-abs(dy) * 50.0) * 1.4);\n    \n    vec3 green = vec3(0.15, 1.0, 0.35);\n    vec3 white = vec3(0.85, 1.0, 0.85);\n    vec3 col   = mix(green, white, clamp(bright - 0.7, 0.0, 1.0));\n    \n    float alpha = bright * m;\n    gl_FragColor = vec4(col * alpha, 1.0);\n}\n",
+  "params": {
+    "uDensity": 45.0,
+    "uSpeed": 1.2
+  },
+  "paramDefs": {
+    "uDensity": { "label": "Densidad",   "min": 15.0,  "max": 90.0,  "default": 45.0 },
+    "uSpeed":   { "label": "Velocidad",  "min": 0.1,   "max": 4.0,   "default": 1.2  },
+    "uTime":    { "label": "Tiempo",     "min": 0.0,   "max": 100.0, "default": 0.0  }
+  }
+}

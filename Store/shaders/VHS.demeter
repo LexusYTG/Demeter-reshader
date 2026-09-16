@@ -1,0 +1,19 @@
+{
+  "name": "VHS",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uTracking;\nuniform float uChroma;\nuniform float uNoise;\nuniform float uTime;\n\nfloat hash1(float x) { return fract(sin(x * 12.9898) * 43758.5453); }\nfloat hash2(vec2 p)  { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n\nvoid main() {\n    vec2 uv = vTexCoord;\n    float tSlice = floor(uTime * 6.0);\n    \n    float barPos  = fract(uTime * 0.13);\n    float barDist = abs(uv.y - barPos);\n    float inBar   = 1.0 - smoothstep(0.0, 0.05, barDist);\n    \n    float jitter = (hash2(vec2(tSlice, uv.y * 30.0)) - 0.5) * 0.008 * uTracking;\n    uv.x += jitter;\n    uv.x += inBar * (hash2(vec2(tSlice, 1.0)) - 0.5) * 0.15 * uTracking;\n    \n    float cx = uChroma * 0.004;\n    float r = texture2D(uTexture, uv + vec2(cx, 0.0)).r;\n    float g = texture2D(uTexture, uv).g;\n    float b = texture2D(uTexture, uv - vec2(cx, 0.0)).b;\n    vec3 col = vec3(r, g, b);\n    \n    float scan = 0.9 + 0.1 * sin(uv.y * 900.0);\n    col *= scan;\n    \n    float n = hash2(uv * 700.0 + tSlice);\n    col += (n - 0.5) * uNoise * 0.15;\n    \n    col = mix(col, vec3(0.9), inBar * 0.15 * uTracking);\n    \n    float luma = dot(col, vec3(0.299, 0.587, 0.114));\n    col = mix(vec3(luma), col, 0.85);\n    \n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": {
+    "uTracking": 1.0,
+    "uChroma": 1.0,
+    "uNoise": 0.6
+  },
+  "paramDefs": {
+    "uTracking": { "label": "Tracking", "min": 0.0, "max": 2.0, "default": 1.0 },
+    "uChroma":   { "label": "Croma",    "min": 0.0, "max": 3.0, "default": 1.0 },
+    "uNoise":    { "label": "Ruido",    "min": 0.0, "max": 2.0, "default": 0.6 },
+    "uTime":     { "label": "Tiempo",   "min": 0.0, "max": 100.0, "default": 0.0 }
+  }
+}

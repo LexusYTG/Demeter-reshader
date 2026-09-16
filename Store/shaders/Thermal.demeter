@@ -1,0 +1,20 @@
+{
+  "name": "Thermal",
+  "author": "AnaCronix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "description": "Paleta térmica: negro → azul → púrpura → rojo → naranja → blanco. Todo lo brillante quema, todo lo oscuro se congela.",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uContrast;\nuniform float uGamma;\nuniform float uGrain;\nuniform float uTime;\n\nfloat hash2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n\nvec3 palette(float t) {\n    vec3 c1 = vec3(0.00, 0.00, 0.05);\n    vec3 c2 = vec3(0.10, 0.00, 0.45);\n    vec3 c3 = vec3(0.55, 0.10, 0.65);\n    vec3 c4 = vec3(0.95, 0.20, 0.20);\n    vec3 c5 = vec3(1.00, 0.60, 0.10);\n    vec3 c6 = vec3(1.00, 0.90, 0.40);\n    vec3 c7 = vec3(1.00, 1.00, 1.00);\n    if (t < 0.166) return mix(c1, c2, t / 0.166);\n    if (t < 0.333) return mix(c2, c3, (t - 0.166) / 0.167);\n    if (t < 0.500) return mix(c3, c4, (t - 0.333) / 0.167);\n    if (t < 0.666) return mix(c4, c5, (t - 0.500) / 0.166);\n    if (t < 0.833) return mix(c5, c6, (t - 0.666) / 0.167);\n    return mix(c6, c7, (t - 0.833) / 0.167);\n}\n\nvoid main() {\n    vec3 col = texture2D(uTexture, vTexCoord).rgb;\n    float luma = dot(col, vec3(0.299, 0.587, 0.114));\n    luma = clamp((luma - 0.5) * uContrast + 0.5, 0.0, 1.0);\n    luma = pow(luma, uGamma);\n    \n    float n = hash2(vTexCoord * 500.0 + floor(uTime * 24.0));\n    luma += (n - 0.5) * uGrain;\n    luma = clamp(luma, 0.0, 1.0);\n    \n    gl_FragColor = vec4(palette(luma), 1.0);\n}\n",
+  "params": {
+    "uContrast": 1.4,
+    "uGamma": 1.0,
+    "uGrain": 0.08
+  },
+  "paramDefs": {
+    "uContrast": { "label": "Contraste", "min": 0.5, "max": 3.0, "default": 1.4  },
+    "uGamma":    { "label": "Gamma",     "min": 0.3, "max": 2.0, "default": 1.0  },
+    "uGrain":    { "label": "Grano",     "min": 0.0, "max": 0.3, "default": 0.08 },
+    "uTime":     { "label": "Tiempo",    "min": 0.0, "max": 100.0, "default": 0.0 }
+  }
+}

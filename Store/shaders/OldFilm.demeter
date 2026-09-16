@@ -1,0 +1,22 @@
+{
+  "name": "OldFilm",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "description": "Película antigua: sepia, rayas verticales, grano, parpadeo y viñeteado. Como una cinta de los años 20 mal conservada.",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uScratch;\nuniform float uGrain;\nuniform float uSepia;\nuniform float uFlicker;\nuniform float uTime;\n\nfloat hash1(float x) { return fract(sin(x * 12.9898) * 43758.5453); }\nfloat hash2(vec2 p)  { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n\nvoid main() {\n    vec2 uv = vTexCoord;\n    float frame = floor(uTime * 12.0);\n    \n    float sx1 = hash1(frame);\n    float sx2 = hash1(frame + 100.0);\n    float s1 = 1.0 - step(0.0020, abs(uv.x - sx1));\n    float s2 = 1.0 - step(0.0012, abs(uv.x - sx2));\n    float scratch = (s1 + s2) * uScratch;\n    \n    uv.x += (hash2(vec2(frame, 0.0)) - 0.5) * 0.003;\n    \n    vec3 col = texture2D(uTexture, uv).rgb;\n    \n    vec3 sepia;\n    sepia.r = dot(col, vec3(0.393, 0.769, 0.189));\n    sepia.g = dot(col, vec3(0.349, 0.686, 0.168));\n    sepia.b = dot(col, vec3(0.272, 0.534, 0.131));\n    col = mix(col, sepia, uSepia);\n    \n    float n = hash2(uv * 400.0 + frame);\n    col += (n - 0.5) * uGrain * 0.15;\n    \n    float flick = 1.0 - (hash1(frame + 50.0) - 0.5) * uFlicker * 0.3;\n    col *= flick;\n    \n    col += vec3(scratch) * 0.6;\n    \n    vec2 c = uv - 0.5;\n    col *= 1.0 - dot(c, c) * 0.85;\n    \n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": {
+    "uScratch": 1.0,
+    "uGrain": 1.0,
+    "uSepia": 0.85,
+    "uFlicker": 1.0
+  },
+  "paramDefs": {
+    "uScratch": { "label": "Rayas",    "min": 0.0, "max": 2.0, "default": 1.0  },
+    "uGrain":   { "label": "Grano",    "min": 0.0, "max": 2.0, "default": 1.0  },
+    "uSepia":   { "label": "Sepia",    "min": 0.0, "max": 1.0, "default": 0.85 },
+    "uFlicker": { "label": "Parpadeo", "min": 0.0, "max": 2.0, "default": 1.0  },
+    "uTime":    { "label": "Tiempo",   "min": 0.0, "max": 100.0, "default": 0.0 }
+  }
+}

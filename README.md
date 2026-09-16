@@ -82,13 +82,8 @@ Función Qué cambia en tu partida
 
 🎬 Efectos incluidos en la store
 
-· Retro / CRT — líneas de barrido, curvatura, parpadeo de tubo.
-· Glitch / Cyberpunk — ruido RGB, desplazamiento de píxeles, interferencia.
-· Mejora de imagen — nitidez, contraste, saturación, HDR simulado.
-· Distorsiones — ondas, espirales, espejo, ojo de pez.
-· Animaciones — colores en movimiento, pulsos, partículas.
-
-Y los que vayan llegando.
+contamos con un amplio catalogo de shaders en la store 
+listos para descargar y probar
 
 ---
 
