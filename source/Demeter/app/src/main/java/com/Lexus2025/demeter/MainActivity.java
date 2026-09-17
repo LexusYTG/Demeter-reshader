@@ -37,6 +37,7 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.SurfaceHolder;
@@ -57,6 +58,8 @@ import java.util.List;
 import java.util.Map;
 
 public class MainActivity extends Activity {
+
+    private static final String TAG = "MainActivity";
 
     private static final int MP = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WC = ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -139,7 +142,7 @@ public class MainActivity extends Activity {
                 }
 
                 if (mFrameGenMode && shader != null
-					&& mPreviewFrameA != null && mPreviewFrameB != null) {
+                    && mPreviewFrameA != null && mPreviewFrameB != null) {
                     mPreviewRenderer.uploadToGenSlot(0, mPreviewFrameA);
                     mPreviewRenderer.uploadToGenSlot(1, mPreviewFrameB);
                     mPreviewRenderer.drawGenBlendShader(
@@ -190,6 +193,17 @@ public class MainActivity extends Activity {
         mModuleManager.reload();
         updateStatusCard();
         rebuildParamsPanel();
+
+        // Si el servicio ya está vivo, fuerza la reemisión del estado FPS.
+        if (mState == CaptureState.PROJECTING) {
+            boolean fps = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
+            Log.d(TAG, "onResume: reemitiendo FPS=" + fps + " al servicio");
+            Intent b = new Intent(CaptureService.ACTION_FPS_OVERLAY);
+            b.setPackage(getPackageName());
+            b.putExtra(CaptureService.EXTRA_FPS_ENABLED, fps);
+            sendBroadcast(b);
+        }
     }
 
     @Override protected void onDestroy() {
@@ -198,13 +212,13 @@ public class MainActivity extends Activity {
         stopPreviewLoop();
         if (mPreviewHandler != null) {
             mPreviewHandler.post(new Runnable() {
-					@Override public void run() {
-						if (mPreviewShader   != null) { mPreviewShader.destroy();    mPreviewShader   = null; }
-						if (mPreviewRenderer != null) { mPreviewRenderer.release();  mPreviewRenderer = null; }
-						if (mPreviewFrameA   != null) { mPreviewFrameA.recycle();    mPreviewFrameA   = null; }
-						if (mPreviewFrameB   != null) { mPreviewFrameB.recycle();    mPreviewFrameB   = null; }
-					}
-				});
+                    @Override public void run() {
+                        if (mPreviewShader   != null) { mPreviewShader.destroy();    mPreviewShader   = null; }
+                        if (mPreviewRenderer != null) { mPreviewRenderer.release();  mPreviewRenderer = null; }
+                        if (mPreviewFrameA   != null) { mPreviewFrameA.recycle();    mPreviewFrameA   = null; }
+                        if (mPreviewFrameB   != null) { mPreviewFrameB.recycle();    mPreviewFrameB   = null; }
+                    }
+                });
         }
         if (mPreviewThread != null) mPreviewThread.quit();
     }
@@ -246,8 +260,8 @@ public class MainActivity extends Activity {
         previewLp.leftMargin   = side;
         previewLp.rightMargin  = side;
         View previewCard = buildPreviewCard();
-		previewCard.setMinimumHeight(Ui.dp(this, 160));
-		root.addView(previewCard, previewLp);
+        previewCard.setMinimumHeight(Ui.dp(this, 160));
+        root.addView(previewCard, previewLp);
 
         LinearLayout.LayoutParams paramsLp = Ui.lp(MP, Ui.dp(this, 200));
         paramsLp.leftMargin   = side;
@@ -391,7 +405,7 @@ public class MainActivity extends Activity {
         if (active == null) {
             mTvParamsTitle.setText("Parámetros");
             TextView empty = Ui.text(this, "Activa un filtro para ver sus parámetros.",
-									 13, Ui.TEXT_TERTIARY, false);
+                                     13, Ui.TEXT_TERTIARY, false);
             empty.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams emptyLp = Ui.lp(MP, Ui.dp(this, 80));
             mParamsList.addView(empty, emptyLp);
@@ -403,7 +417,7 @@ public class MainActivity extends Activity {
         if (defs.isEmpty()) {
             mTvParamsTitle.setText(active.getName() + " — sin parámetros");
             TextView empty = Ui.text(this, "Este filtro no expone parámetros configurables.",
-									 13, Ui.TEXT_TERTIARY, false);
+                                     13, Ui.TEXT_TERTIARY, false);
             empty.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams emptyLp = Ui.lp(MP, Ui.dp(this, 80));
             mParamsList.addView(empty, emptyLp);
@@ -424,7 +438,7 @@ public class MainActivity extends Activity {
         final float step = stepForRange(def.max - def.min);
         final Map<String, Float> params = module.getParams();
         final float initial = params.containsKey(uniformName)
-			? params.get(uniformName) : def.defaultValue;
+            ? params.get(uniformName) : def.defaultValue;
         final boolean decimal = (def.max - def.min) <= 20f;
 
         LinearLayout row = new LinearLayout(this);
@@ -447,8 +461,8 @@ public class MainActivity extends Activity {
 
         final EditText etValue = new EditText(this);
         etValue.setInputType(InputType.TYPE_CLASS_NUMBER
-							 | InputType.TYPE_NUMBER_FLAG_DECIMAL
-							 | InputType.TYPE_NUMBER_FLAG_SIGNED);
+                             | InputType.TYPE_NUMBER_FLAG_DECIMAL
+                             | InputType.TYPE_NUMBER_FLAG_SIGNED);
         etValue.setText(formatValue(initial, decimal));
         etValue.setTextColor(Ui.TEXT_PRIMARY);
         etValue.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
@@ -456,9 +470,9 @@ public class MainActivity extends Activity {
         etValue.setGravity(Gravity.CENTER);
         etValue.setBackground(Ui.roundRectStroke(Ui.BG_ELEV, Ui.DIVIDER, this, 10, 1f));
         etValue.setPadding(Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8), Ui.dp(this, 6));
-        
+
         etValue.setBackgroundDrawable(
-			Ui.roundRectStroke(Ui.BG_ELEV, Ui.DIVIDER, this, 10, 1f));
+            Ui.roundRectStroke(Ui.BG_ELEV, Ui.DIVIDER, this, 10, 1f));
 
         LinearLayout.LayoutParams etLp = Ui.lp(0, Ui.dp(this, 40), 1f);
         etLp.leftMargin  = Ui.dp(this, 6);
@@ -471,8 +485,8 @@ public class MainActivity extends Activity {
         row.addView(controls, Ui.lp(MP, WC));
 
         String rangeHint = formatValue(def.min, decimal) + "  ···  "
-			+ "def: " + formatValue(def.defaultValue, decimal) + "  ···  "
-			+ formatValue(def.max, decimal);
+            + "def: " + formatValue(def.defaultValue, decimal) + "  ···  "
+            + formatValue(def.max, decimal);
         TextView tvRange = Ui.text(this, rangeHint, 10, Ui.TEXT_TERTIARY, false);
         tvRange.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams rangeLp = Ui.lp(MP, WC);
@@ -480,37 +494,37 @@ public class MainActivity extends Activity {
         row.addView(tvRange, rangeLp);
 
         etValue.addTextChangedListener(new TextWatcher() {
-				@Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-				@Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
-				@Override public void afterTextChanged(Editable s) {
-					String txt = s.toString().trim();
-					if (txt.isEmpty() || txt.equals("-") || txt.equals(".")) return;
-					try {
-						float v = Float.parseFloat(txt);
-						applyParam(module, uniformName, v);
-					} catch (NumberFormatException ignored) {}
-				}
-			});
+                @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+                @Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
+                @Override public void afterTextChanged(Editable s) {
+                    String txt = s.toString().trim();
+                    if (txt.isEmpty() || txt.equals("-") || txt.equals(".")) return;
+                    try {
+                        float v = Float.parseFloat(txt);
+                        applyParam(module, uniformName, v);
+                    } catch (NumberFormatException ignored) {}
+                }
+            });
 
         btnMinus.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) {
-					float cur = currentValue(etValue, module, uniformName, def);
-					float next = cur - step;
-					etValue.setText(formatValue(next, decimal));
-					etValue.setSelection(etValue.getText().length());
-					applyParam(module, uniformName, next);
-				}
-			});
+                @Override public void onClick(View v) {
+                    float cur = currentValue(etValue, module, uniformName, def);
+                    float next = cur - step;
+                    etValue.setText(formatValue(next, decimal));
+                    etValue.setSelection(etValue.getText().length());
+                    applyParam(module, uniformName, next);
+                }
+            });
 
         btnPlus.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) {
-					float cur = currentValue(etValue, module, uniformName, def);
-					float next = cur + step;
-					etValue.setText(formatValue(next, decimal));
-					etValue.setSelection(etValue.getText().length());
-					applyParam(module, uniformName, next);
-				}
-			});
+                @Override public void onClick(View v) {
+                    float cur = currentValue(etValue, module, uniformName, def);
+                    float next = cur + step;
+                    etValue.setText(formatValue(next, decimal));
+                    etValue.setSelection(etValue.getText().length());
+                    applyParam(module, uniformName, next);
+                }
+            });
 
         View.OnLongClickListener resetListener = new View.OnLongClickListener() {
             @Override public boolean onLongClick(View v) {
@@ -545,12 +559,11 @@ public class MainActivity extends Activity {
 
     private void applyParam(final Module module, final String uniformName, final float value) {
         mModuleManager.setParamValue(module, uniformName, value);
-        
     }
 
     private String formatValue(float v, boolean decimal) {
         if (decimal) return String.format("%.3f", v);
-        
+
         if (v == (int) v) return String.valueOf((int) v);
         return String.format("%.1f", v);
     }
@@ -597,7 +610,7 @@ public class MainActivity extends Activity {
         mBtnFilters.setAllCaps(false);
         mBtnFilters.setStateListAnimator(null);
         mBtnFilters.setBackground(Ui.buttonBgStroke(
-									  this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 14, 1f));
+                                      this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 14, 1f));
         return mBtnFilters;
     }
 
@@ -607,7 +620,7 @@ public class MainActivity extends Activity {
         b.setAllCaps(false);
         b.setStateListAnimator(null);
         b.setBackground(Ui.buttonBgStroke(
-							this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 14, 1f));
+                            this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 14, 1f));
     }
 
     private TextView makeIconButton(String glyph) {
@@ -618,7 +631,7 @@ public class MainActivity extends Activity {
         tv.setGravity(Gravity.CENTER);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
         tv.setBackground(Ui.buttonBgStroke(
-							 this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 22, 1f));
+                             this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 22, 1f));
         tv.setClickable(true);
         return tv;
     }
@@ -631,7 +644,7 @@ public class MainActivity extends Activity {
         tv.setGravity(Gravity.CENTER);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
         tv.setBackground(Ui.buttonBgStroke(
-							 this, Ui.BG_ELEV, Ui.ACCENT_SOFT, Ui.DIVIDER, 10, 1f));
+                             this, Ui.BG_ELEV, Ui.ACCENT_SOFT, Ui.DIVIDER, 10, 1f));
         tv.setClickable(true);
         tv.setLongClickable(true);
         return tv;
@@ -641,28 +654,28 @@ public class MainActivity extends Activity {
         View importBtn = findViewById(android.R.id.button1);
         if (importBtn != null) {
             importBtn.setOnClickListener(new View.OnClickListener() {
-					@Override public void onClick(View v) { importModule(); }
-				});
+                    @Override public void onClick(View v) { importModule(); }
+                });
         }
 
         mBtnCapture.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) { onCaptureBtnClicked(); }
-			});
+                @Override public void onClick(View v) { onCaptureBtnClicked(); }
+            });
         mBtnCapture.setOnLongClickListener(new View.OnLongClickListener() {
-				@Override public boolean onLongClick(View v) { toggleFrameGenMode(); return true; }
-			});
+                @Override public boolean onLongClick(View v) { toggleFrameGenMode(); return true; }
+            });
         mBtnArea.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) { openCaptureAreaSelector(); }
-			});
+                @Override public void onClick(View v) { openCaptureAreaSelector(); }
+            });
         mBtnOverlay.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) { openOverlayPositionSelector(); }
-			});
+                @Override public void onClick(View v) { openOverlayPositionSelector(); }
+            });
         mBtnFilters.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) {
-					startActivityForResult(new Intent(MainActivity.this, FiltersActivity.class),
-										   REQ_FILTERS);
-				}
-			});
+                @Override public void onClick(View v) {
+                    startActivityForResult(new Intent(MainActivity.this, FiltersActivity.class),
+                                           REQ_FILTERS);
+                }
+            });
     }
 
     private void updateStatusCard() {
@@ -700,8 +713,8 @@ public class MainActivity extends Activity {
         }
 
         mBtnFilters.setText(chain.isEmpty()
-							? "Filtros"
-							: "Filtros · " + chain.size() + (chain.size() == 1 ? " activo" : " activos"));
+                            ? "Filtros"
+                            : "Filtros · " + chain.size() + (chain.size() == 1 ? " activo" : " activos"));
     }
 
     private void setState(CaptureState state) {
@@ -722,31 +735,31 @@ public class MainActivity extends Activity {
         mPreviewHandler = new Handler(mPreviewThread.getLooper());
 
         mSurfacePreview.getHolder().addCallback(new SurfaceHolder.Callback() {
-				@Override public void surfaceCreated(final SurfaceHolder holder) {
-					mPreviewHandler.post(new Runnable() {
-							@Override public void run() {
-								mPreviewRenderer = new GlRenderer();
-								mPreviewGlReady  = mPreviewRenderer.init(holder);
-								if (mPreviewGlReady) {
-									mPreviewRenderer.uploadBitmap(buildPreviewTestBitmap(0));
-									refreshPreviewShaderLocked();
-									startPreviewLoop();
-								}
-							}
-						});
-				}
-				@Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {}
-				@Override public void surfaceDestroyed(SurfaceHolder holder) {
-					stopPreviewLoop();
-					mPreviewHandler.post(new Runnable() {
-							@Override public void run() {
-								if (mPreviewShader   != null) { mPreviewShader.destroy();   mPreviewShader   = null; }
-								if (mPreviewRenderer != null) { mPreviewRenderer.release(); mPreviewRenderer = null; }
-								mPreviewGlReady = false;
-							}
-						});
-				}
-			});
+                @Override public void surfaceCreated(final SurfaceHolder holder) {
+                    mPreviewHandler.post(new Runnable() {
+                            @Override public void run() {
+                                mPreviewRenderer = new GlRenderer();
+                                mPreviewGlReady  = mPreviewRenderer.init(holder);
+                                if (mPreviewGlReady) {
+                                    mPreviewRenderer.uploadBitmap(buildPreviewTestBitmap(0));
+                                    refreshPreviewShaderLocked();
+                                    startPreviewLoop();
+                                }
+                            }
+                        });
+                }
+                @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {}
+                @Override public void surfaceDestroyed(SurfaceHolder holder) {
+                    stopPreviewLoop();
+                    mPreviewHandler.post(new Runnable() {
+                            @Override public void run() {
+                                if (mPreviewShader   != null) { mPreviewShader.destroy();   mPreviewShader   = null; }
+                                if (mPreviewRenderer != null) { mPreviewRenderer.release(); mPreviewRenderer = null; }
+                                mPreviewGlReady = false;
+                            }
+                        });
+                }
+            });
     }
 
     private void startPreviewLoop() {
@@ -766,31 +779,31 @@ public class MainActivity extends Activity {
         List<Module> shaderChain = mModuleManager.getEnabledChain();
         final Module active = shaderChain.isEmpty() ? null : shaderChain.get(0);
         if (active != null
-			&& active.getVertexShader() != null && active.getFragmentShader() != null) {
+            && active.getVertexShader() != null && active.getFragmentShader() != null) {
             try {
                 mPreviewShader = new ShaderFilter(
                     active.getVertexShader(), active.getFragmentShader(), active.getParams());
             } catch (RuntimeException e) { mPreviewShader = null; }
         }
         runOnUiThread(new Runnable() {
-				@Override public void run() {
-					if (mTvPreviewHint != null) {
-						mTvPreviewHint.setVisibility(
-							(active != null && mPreviewShader != null) ? View.GONE : View.VISIBLE);
-					}
-				}
-			});
+                @Override public void run() {
+                    if (mTvPreviewHint != null) {
+                        mTvPreviewHint.setVisibility(
+                            (active != null && mPreviewShader != null) ? View.GONE : View.VISIBLE);
+                    }
+                }
+            });
     }
 
     private void refreshPreviewForActiveModuleChange() {
         if (mPreviewHandler != null) {
             mPreviewHandler.post(new Runnable() {
-					@Override public void run() { refreshPreviewShaderLocked(); }
-				});
+                    @Override public void run() { refreshPreviewShaderLocked(); }
+                });
         }
         runOnUiThread(new Runnable() {
-				@Override public void run() { rebuildParamsPanel(); }
-			});
+                @Override public void run() { rebuildParamsPanel(); }
+            });
     }
 
     private Bitmap buildPreviewTestBitmap(int variant) {
@@ -879,6 +892,11 @@ public class MainActivity extends Activity {
             svc.putExtra(CaptureService.EXTRA_OVERLAY_RIGHT,  mOverlayRect.right);
             svc.putExtra(CaptureService.EXTRA_OVERLAY_BOTTOM, mOverlayRect.bottom);
         }
+        boolean fpsOverlay = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
+        Log.d(TAG, "launchCaptureService: FPS pref=" + fpsOverlay);
+        svc.putExtra(CaptureService.EXTRA_FPS_OVERLAY, fpsOverlay);
+
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc); else startService(svc);
         setState(CaptureState.PROJECTING);
     }
@@ -912,8 +930,8 @@ public class MainActivity extends Activity {
 
     private void importModuleLocal() {
         if (Build.VERSION.SDK_INT >= 23
-			&& checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
-			!= PackageManager.PERMISSION_GRANTED) {
+            && checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
+            != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQ_STORAGE);
         } else {
             openFilePicker();
@@ -989,6 +1007,17 @@ public class MainActivity extends Activity {
                 }
                 break;
             case REQ_FILTERS:
+                boolean fpsEnabled = getSharedPreferences(
+					FiltersActivity.PREFS_NAME, MODE_PRIVATE)
+                    .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
+                Log.d(TAG, "onActivityResult REQ_FILTERS: FPS pref=" + fpsEnabled
+                      + " mState=" + mState);
+                if (mState == CaptureState.PROJECTING) {
+                    Intent fpsBroadcast = new Intent(CaptureService.ACTION_FPS_OVERLAY);
+                    fpsBroadcast.setPackage(getPackageName());
+                    fpsBroadcast.putExtra(CaptureService.EXTRA_FPS_ENABLED, fpsEnabled);
+                    sendBroadcast(fpsBroadcast);
+                }
                 refreshPreviewForActiveModuleChange();
                 updateStatusCard();
                 break;

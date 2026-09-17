@@ -24,15 +24,25 @@ import java.util.*;
 
 public class FiltersActivity extends Activity {
 
+    private static final String TAG = "FiltersActivity";
+
     private static final int MP = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WC = ViewGroup.LayoutParams.WRAP_CONTENT;
 
     public static final String EXTRA_RESULT_CHANGED = "changed";
 
+    public static final String PREFS_NAME    = "demeter_prefs";
+    public static final String PREF_FPS_OVERLAY = "fps_overlay";
+
+    private static final int REQ_FPS_POSITION = 201;
+
     private ModuleManager mModuleManager;
     private LinearLayout  mLlFilters;
     private TextView      mTvCount;
     private boolean       mChanged = false;
+    private boolean       mFpsOverlay = false;
+    private Switch        mFpsSwitch = null;
+    private TextView      mBtnFpsPosition = null;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -49,10 +59,29 @@ public class FiltersActivity extends Activity {
             | View.SYSTEM_UI_FLAG_FULLSCREEN
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
 
+        mFpsOverlay = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(PREF_FPS_OVERLAY, false);
+        Log.d(TAG, "onCreate: pref FPS = " + mFpsOverlay);
+
         mModuleManager = new ModuleManager(this);
 
         setContentView(buildRoot());
         rebuildList();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        boolean fps = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(PREF_FPS_OVERLAY, false);
+        Log.d(TAG, "onResume: pref=" + fps + " mFpsOverlay=" + mFpsOverlay);
+
+        if (mFpsOverlay != fps) {
+            mFpsOverlay = fps;
+            if (mFpsSwitch != null) mFpsSwitch.setChecked(fps);
+        } else if (mFpsSwitch != null && mFpsSwitch.isChecked() != mFpsOverlay) {
+            mFpsSwitch.setChecked(mFpsOverlay);
+        }
+        updateFpsPositionButtonState();
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -89,6 +118,8 @@ public class FiltersActivity extends Activity {
         int side = Ui.dp(this, 20);
         desc.setPadding(side, 0, side, Ui.dp(this, 14));
         root.addView(desc);
+
+        root.addView(buildFpsOverlayRow());
 
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
@@ -220,7 +251,7 @@ public class FiltersActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         int pad = Ui.dp(this, 14);
-        int leftPad = isActive ? Ui.dp(this, 17) : pad; 
+        int leftPad = isActive ? Ui.dp(this, 17) : pad;
         row.setPadding(leftPad, pad, pad, pad);
         outer.addView(row, new FrameLayout.LayoutParams(MP, WC));
 
@@ -265,8 +296,8 @@ public class FiltersActivity extends Activity {
 
         if (!isActive && !module.getParamDefs().isEmpty()) {
             TextView hint = Ui.text(this, "· " + module.getParamDefs().size() + " parámetro" +
-									(module.getParamDefs().size() == 1 ? "" : "s") + " configurables",
-									11, Ui.ACCENT, false);
+                                    (module.getParamDefs().size() == 1 ? "" : "s") + " configurables",
+                                    11, Ui.ACCENT, false);
             LinearLayout.LayoutParams hintLp = Ui.lp(MP, WC);
             hintLp.topMargin = Ui.dp(this, 3);
             col.addView(hint, hintLp);
@@ -310,17 +341,17 @@ public class FiltersActivity extends Activity {
 
             TextView gear = makeIconButton("⚙");
             gear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-            
+
             gear.setTextColor(hasCustomParams ? Ui.ACCENT : Ui.TEXT_SECOND);
             gear.setBackground(Ui.buttonBgStroke(
-								   this,
-								   hasCustomParams ? Ui.ACCENT_SOFT : Ui.BG_ELEV,
-								   hasCustomParams ? Ui.ACCENT_SOFT : Ui.DIVIDER,
-								   hasCustomParams ? Ui.ACCENT      : Ui.DIVIDER,
-								   22, 1f));
+                                   this,
+                                   hasCustomParams ? Ui.ACCENT_SOFT : Ui.BG_ELEV,
+                                   hasCustomParams ? Ui.ACCENT_SOFT : Ui.DIVIDER,
+                                   hasCustomParams ? Ui.ACCENT      : Ui.DIVIDER,
+                                   22, 1f));
             gear.setOnClickListener(new View.OnClickListener() {
-					@Override public void onClick(View v) { showParamsDialog(module); }
-				});
+                    @Override public void onClick(View v) { showParamsDialog(module); }
+                });
             gearWrapper.addView(gear, new FrameLayout.LayoutParams(MP, MP));
 
             if (hasCustomParams) {
@@ -371,7 +402,7 @@ public class FiltersActivity extends Activity {
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.RECTANGLE);
         d.setColor(Ui.ACCENT);
-        
+
         float r = Ui.dp(this, 3);
         d.setCornerRadii(new float[]{0, 0, r, r, r, r, 0, 0});
         return d;
@@ -382,11 +413,11 @@ public class FiltersActivity extends Activity {
         String label;
         switch (type) {
             case FRAMEGEN:
-                chipColor = 0xFF1A3A2A; 
+                chipColor = 0xFF1A3A2A;
                 label = "FRAMEGEN";
                 break;
             case RENDERER:
-                chipColor = 0xFF2A1A3A; 
+                chipColor = 0xFF2A1A3A;
                 label = "RENDERER";
                 break;
             default:
@@ -459,7 +490,7 @@ public class FiltersActivity extends Activity {
             labelRow.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 4));
 
             final TextView label = Ui.text(this, "", 14,
-										   isModified ? Ui.ACCENT : Ui.TEXT_PRIMARY, false);
+                                           isModified ? Ui.ACCENT : Ui.TEXT_PRIMARY, false);
             final float range = def.max - def.min;
             final boolean showDecimal = range <= 10f;
             updateParamLabel(label, def.label, initialValue, showDecimal, isModified);
@@ -495,27 +526,26 @@ public class FiltersActivity extends Activity {
             final Module.ParamDef defRef = def;
             final String uniformRef = uniformName;
             resetBtn.setOnClickListener(new View.OnClickListener() {
-					@Override public void onClick(View v) {
-						mModuleManager.setParamValue(module, uniformRef, defRef.defaultValue);
-						int prog = Math.round((defRef.defaultValue - defRef.min) / range * 1000);
-						seekBarRef.setProgress(prog);
-						label.setTextColor(Ui.TEXT_PRIMARY);
-						updateParamLabel(label, defRef.label, defRef.defaultValue, showDecimal, false);
-						resetBtn.setVisibility(View.INVISIBLE);
-						mChanged = true;
-					}
-				});
+                    @Override public void onClick(View v) {
+                        mModuleManager.setParamValue(module, uniformRef, defRef.defaultValue);
+                        int prog = Math.round((defRef.defaultValue - defRef.min) / range * 1000);
+                        seekBarRef.setProgress(prog);
+                        label.setTextColor(Ui.TEXT_PRIMARY);
+                        updateParamLabel(label, defRef.label, defRef.defaultValue, showDecimal, false);
+                        resetBtn.setVisibility(View.INVISIBLE);
+                        mChanged = true;
+                    }
+                });
 
             LinearLayout minMax = new LinearLayout(this);
             minMax.setOrientation(LinearLayout.HORIZONTAL);
             TextView tvMin = Ui.text(this,
                                      showDecimal ? String.format("%.2f", def.min) : String.valueOf((int) def.min),
                                      11, Ui.TEXT_TERTIARY, false);
-            
-            float defaultFrac = range > 0 ? (def.defaultValue - def.min) / range : 0.5f;
+
             String defaultLabel = showDecimal
-				? String.format("default: %.2f", def.defaultValue)
-				: "default: " + (int) def.defaultValue;
+                ? String.format("default: %.2f", def.defaultValue)
+                : "default: " + (int) def.defaultValue;
             TextView tvDefault = Ui.text(this, defaultLabel, 10, Ui.TEXT_TERTIARY, false);
             tvDefault.setGravity(Gravity.CENTER);
 
@@ -540,10 +570,10 @@ public class FiltersActivity extends Activity {
                         mModuleManager.setParamValue(module, e.getKey(), e.getValue().defaultValue);
                     }
                     mChanged = true;
-                    
+
                     Toast.makeText(FiltersActivity.this,
-								   module.getName() + ": parámetros restablecidos",
-								   Toast.LENGTH_SHORT).show();
+                                   module.getName() + ": parámetros restablecidos",
+                                   Toast.LENGTH_SHORT).show();
                 }
             })
             .show();
@@ -554,5 +584,108 @@ public class FiltersActivity extends Activity {
         String v = decimal ? String.format("%.3f", value) : String.valueOf((int) value);
         String mod = modified ? "  ●" : "";
         tv.setText(label + ": " + v + mod);
+    }
+
+    // -------------------------------------------------------------------------
+    // Fila del overlay de FPS: switch + botón de posición
+    // -------------------------------------------------------------------------
+
+    private View buildFpsOverlayRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        int side = Ui.dp(this, 20);
+        int vert = Ui.dp(this, 10);
+        row.setPadding(side, vert, side, vert);
+        row.setBackground(Ui.roundRect(Ui.BG_SURFACE, this, 12));
+
+        LinearLayout.LayoutParams rowLp = Ui.lp(MP, WC);
+        rowLp.leftMargin   = Ui.dp(this, 12);
+        rowLp.rightMargin  = Ui.dp(this, 12);
+        rowLp.bottomMargin = Ui.dp(this, 10);
+        row.setLayoutParams(rowLp);
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+
+        TextView title = Ui.text(this, "Overlay de FPS", 14, Ui.TEXT_PRIMARY, true);
+        col.addView(title, Ui.lp(WC, WC));
+
+        TextView sub = Ui.text(this, "Muestra los FPS sobre la pantalla", 12, Ui.TEXT_TERTIARY, false);
+        LinearLayout.LayoutParams subLp = Ui.lp(WC, WC);
+        subLp.topMargin = Ui.dp(this, 2);
+        col.addView(sub, subLp);
+
+        row.addView(col, Ui.lp(0, WC, 1f));
+
+        // Botón de posición (pin)
+        mBtnFpsPosition = Ui.text(this, "📍", 18, Ui.TEXT_PRIMARY, false);
+        mBtnFpsPosition.setGravity(Gravity.CENTER);
+        mBtnFpsPosition.setBackground(Ui.buttonBgStroke(
+                                          this, Ui.BG_ELEV, Ui.ACCENT_SOFT, Ui.DIVIDER, 22, 1f));
+        mBtnFpsPosition.setClickable(true);
+        mBtnFpsPosition.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    startActivityForResult(
+                        new Intent(FiltersActivity.this, FpsPositionActivity.class),
+                        REQ_FPS_POSITION);
+                }
+            });
+        LinearLayout.LayoutParams btnLp = Ui.lp(Ui.dp(this, 44), Ui.dp(this, 44));
+        btnLp.rightMargin = Ui.dp(this, 8);
+        row.addView(mBtnFpsPosition, btnLp);
+
+        final Switch sw = new Switch(this);
+        sw.setChecked(mFpsOverlay);
+        sw.setShowText(false);
+        sw.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                @Override
+                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                    if (mFpsOverlay == isChecked) return;
+
+                    mFpsOverlay = isChecked;
+
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(PREF_FPS_OVERLAY, isChecked)
+                        .commit();
+
+                    sendFpsOverlayBroadcast(isChecked);
+                    mChanged = true;
+                    updateFpsPositionButtonState();
+                }
+            });
+        mFpsSwitch = sw;
+        row.addView(sw);
+
+        updateFpsPositionButtonState();
+        return row;
+    }
+
+    private void updateFpsPositionButtonState() {
+        if (mBtnFpsPosition == null) return;
+        mBtnFpsPosition.setEnabled(mFpsOverlay);
+        mBtnFpsPosition.setTextColor(mFpsOverlay ? Ui.TEXT_PRIMARY : Ui.TEXT_TERTIARY);
+    }
+
+    private void sendFpsOverlayBroadcast(boolean enabled) {
+        Intent intent = new Intent(CaptureService.ACTION_FPS_OVERLAY);
+        intent.setPackage(getPackageName());
+        intent.putExtra(CaptureService.EXTRA_FPS_ENABLED, enabled);
+        Log.d(TAG, "sendFpsOverlayBroadcast enabled=" + enabled);
+        sendBroadcast(intent);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_FPS_POSITION) {
+            if (resultCode == RESULT_OK) {
+                // La posición ya se guardó en prefs dentro de FpsPositionActivity.
+                // Reemitimos el broadcast para que el servicio re-lea y reposicione.
+                Log.d(TAG, "onActivityResult FPS position: reemitiendo overlay");
+                sendFpsOverlayBroadcast(mFpsOverlay);
+                mChanged = true;
+            }
+        }
     }
 }

@@ -49,4 +49,9 @@ public class CaptureApi {
     public float getFps() {
         return mRenderer != null ? mRenderer.getFps() : 0f;
     }
+
+    public void setFpsOverlay(boolean enabled) {
+        if (mRenderer != null) mRenderer.setFpsOverlay(enabled);
+    }
 }
+

@@ -33,16 +33,21 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-		<activity
-   android:name=".FiltersActivity"
-				
-    android:exported="false"
-				
-    android:theme="@android:style/Theme.Material.NoActionBar" />
-        
+
+        <activity
+            android:name=".FiltersActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+
         <activity android:name=".CaptureAreaActivity" />
         <activity android:name=".OverlayPositionActivity" />
         <activity android:name=".ShaderStoreActivity" />
+
+        <activity
+            android:name=".FpsPositionActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
 
         <service
             android:name=".CaptureService"
@@ -52,5 +57,3 @@
 
     </application>
 </manifest>
-
-

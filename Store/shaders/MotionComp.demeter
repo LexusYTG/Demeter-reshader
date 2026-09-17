@@ -1,0 +1,20 @@
+{
+  "name": "MotionComp",
+  "author": "Claude",
+  "version": "1.0",
+  "type": "FRAMEGEN",
+  "description": "Frame generation con estimación de movimiento por píxel. En vez de un crossfade ciego (que genera ghosting al moverse), cada píxel busca su propio vector de movimiento en un vecindario y samplea las dos fuentes en posiciones compensadas. Bordes nítidos, cero ghosting en cámara lenta.",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture0;\nuniform sampler2D uTexture1;\nuniform float uMix;\nuniform float uSearchRadius;\nuniform float uTexelSize;\nuniform float uTime;\nuniform float uDebug;\n\nfloat luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }\n\nfloat costAt(vec2 uv, vec2 offset) {\n    float a = luma(texture2D(uTexture0, uv - offset).rgb);\n    float b = luma(texture2D(uTexture1, uv + offset).rgb);\n    return abs(a - b);\n}\n\nvoid main() {\n    vec2 uv = vTexCoord;\n    float r = uSearchRadius * uTexelSize;\n    float t = uMix;\n    \n    vec2 bestOffset = vec2(0.0);\n    float bestCost = costAt(uv, vec2(0.0));\n    \n    vec2 d; float c;\n    \n    d = vec2( r, 0.0); c = costAt(uv, d); if (c < bestCost) { bestCost = c; bestOffset = d; }\n    d = vec2(-r, 0.0); c = costAt(uv, d); if (c < bestCost) { bestCost = c; bestOffset = d; }\n    d = vec2(0.0,  r); c = costAt(uv, d); if (c < bestCost) { bestCost = c; bestOffset = d; }\n    d = vec2(0.0, -r); c = costAt(uv, d); if (c < bestCost) { bestCost = c; bestOffset = d; }\n    \n    vec2 r2v = bestOffset * 0.5;\n    float r2 = r * 0.5;\n    d = r2v + vec2( r2, 0.0); c = costAt(uv, d); if (c < bestCost) { bestCost = c; bestOffset = d; }\n    d = r2v + vec2(-r2, 0.0); c = costAt(uv, d); if (c < bestCost) { bestCost = c; bestOffset = d; }\n    d = r2v + vec2(0.0,  r2); c = costAt(uv, d); if (c < bestCost) { bestCost = c; bestOffset = d; }\n    d = r2v + vec2(0.0, -r2); c = costAt(uv, d); if (c < bestCost) { bestCost = c; bestOffset = d; }\n    \n    float conf = 1.0 - smoothstep(0.08, 0.35, bestCost);\n    \n    if (uDebug > 0.5) {\n        vec2 v = bestOffset * 60.0;\n        gl_FragColor = vec4(v.x + 0.5, v.y + 0.5, conf, 1.0);\n        return;\n    }\n    \n    vec2 uvA = uv - bestOffset * 2.0 * t;\n    vec2 uvB = uv + bestOffset * 2.0 * (1.0 - t);\n    \n    vec3 colA = texture2D(uTexture0, uvA).rgb;\n    vec3 colB = texture2D(uTexture1, uvB).rgb;\n    vec3 motionComp = mix(colA, colB, t);\n    \n    vec3 crossfade = mix(\n        texture2D(uTexture0, uv).rgb,\n        texture2D(uTexture1, uv).rgb,\n        t\n    );\n    \n    vec3 col = mix(crossfade, motionComp, conf);\n    \n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": {
+    "uSearchRadius": 4.0,
+    "uTexelSize": 0.000925,
+    "uDebug": 0.0
+  },
+  "paramDefs": {
+    "uSearchRadius": { "label": "Radio búsqueda (px)", "min": 0.0,  "max": 16.0,    "default": 4.0     },
+    "uTexelSize":    { "label": "Texel size (1/ancho)", "min": 0.0001, "max": 0.005,  "default": 0.000925 },
+    "uDebug":        { "label": "Debug motion",     "min": 0.0,  "max": 1.0,     "default": 0.0     },
+    "uTime":         { "label": "Tiempo",           "min": 0.0,  "max": 100.0,   "default": 0.0     }
+  }
+}

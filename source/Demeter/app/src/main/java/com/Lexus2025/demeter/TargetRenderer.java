@@ -53,7 +53,14 @@ public class TargetRenderer {
     private int          mFrameTimeIdx = 0;
     private volatile float mFps        = -1f;
 
+    // FPS overlay flag — leído desde el hilo GL vía volatile
+    private volatile boolean mFpsOverlay = false;
+
     public float getFps() { return mFps; }
+
+    public void setFpsOverlay(boolean enabled) {
+        mFpsOverlay = enabled;
+    }
 
     private void recordFrame() {
         long now = System.nanoTime();
@@ -544,3 +551,4 @@ public class TargetRenderer {
         mGlThread.quitSafely();
     }
 }
+
