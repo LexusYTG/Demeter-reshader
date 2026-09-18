@@ -1,0 +1,17 @@
+{
+  "name": "Vaporwave",
+  "author": "AnaCronix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uHueShift;\nuniform float uSaturation;\nuniform float uGrid;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec4 col = texture2D(uTexture, uv);\n    float lum = dot(col.rgb, vec3(0.299, 0.587, 0.114));\n    vec3 pink = vec3(1.0, 0.41, 0.71);\n    vec3 cyan = vec3(0.0, 0.9, 0.9);\n    vec3 purple = vec3(0.6, 0.2, 0.9);\n    vec3 vaporColor = mix(pink, cyan, lum);\n    vaporColor = mix(vaporColor, purple, (1.0 - lum) * 0.3);\n    col.rgb = mix(col.rgb, vaporColor, uSaturation);\n    float gridLine = max(\n        step(1.0 - 0.015 / uGrid, fract(uv.x * uGrid)),\n        step(1.0 - 0.015 / uGrid, fract(uv.y * uGrid * 0.5))\n    );\n    col.rgb += gridLine * vec3(0.2, 0.05, 0.3) * uGrid * 0.08;\n    col.rgb = clamp(col.rgb, 0.0, 1.0);\n    gl_FragColor = col;\n}",
+  "params": {
+    "uHueShift": 0.0,
+    "uSaturation": 0.7,
+    "uGrid": 10.0
+  },
+  "paramDefs": {
+    "uSaturation": { "label": "Mezcla Vaporwave", "min": 0.0, "max": 1.0, "default": 0.7 },
+    "uGrid": { "label": "Intensidad de grilla", "min": 0.0, "max": 20.0, "default": 10.0 }
+  }
+}

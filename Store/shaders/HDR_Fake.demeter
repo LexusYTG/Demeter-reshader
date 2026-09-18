@@ -1,0 +1,13 @@
+{
+  "name": "HDR Fake",
+  "author": "LexusYTG",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uStrength;\nuniform float uSat;\nuniform float uRadius;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 px = vec2(uRadius) * 0.003;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 blur = vec3(0.0);\n    blur += texture2D(uTexture, uv + vec2(-px.x, -px.y)).rgb;\n    blur += texture2D(uTexture, uv + vec2( px.x, -px.y)).rgb;\n    blur += texture2D(uTexture, uv + vec2(-px.x,  px.y)).rgb;\n    blur += texture2D(uTexture, uv + vec2( px.x,  px.y)).rgb;\n    blur *= 0.25;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    float blurLum = dot(blur, vec3(0.299, 0.587, 0.114));\n    float local = lum - blurLum;\n    vec3 detail = src + local * uStrength;\n    vec3 finalLum = dot(detail, vec3(0.299, 0.587, 0.114)) * vec3(1.0);\n    detail = mix(vec3(finalLum.g), detail, 1.0 + uSat);\n    gl_FragColor = vec4(clamp(detail, 0.0, 1.0), 1.0);\n}\n",
+  "paramDefs": {
+    "uStrength": { "label": "Detalle local", "min": 0.0, "max": 3.0, "default": 1.2 },
+    "uSat":      { "label": "Saturación", "min": 0.0, "max": 1.0, "default": 0.3 },
+    "uRadius":   { "label": "Radio", "min": 1.0, "max": 10.0, "default": 3.0 }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "Sharpen",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uStrength;\nuniform float uRadius;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 t = vec2(uRadius * 0.002, uRadius * 0.002);\n    vec4 center = texture2D(uTexture, uv);\n    vec4 top    = texture2D(uTexture, uv + vec2(0.0, t.y));\n    vec4 bottom = texture2D(uTexture, uv - vec2(0.0, t.y));\n    vec4 left   = texture2D(uTexture, uv - vec2(t.x, 0.0));\n    vec4 right  = texture2D(uTexture, uv + vec2(t.x, 0.0));\n    vec4 sharpened = center * (1.0 + 4.0 * uStrength) - (top + bottom + left + right) * uStrength;\n    gl_FragColor = clamp(sharpened, 0.0, 1.0);\n}",
+  "params": {
+    "uStrength": 0.4,
+    "uRadius": 1.0
+  },
+  "paramDefs": {
+    "uStrength": { "label": "Nitidez", "min": 0.0, "max": 1.5, "default": 0.4 },
+    "uRadius": { "label": "Radio del kernel", "min": 0.5, "max": 3.0, "default": 1.0 }
+  }
+}

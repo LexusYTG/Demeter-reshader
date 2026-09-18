@@ -1,0 +1,13 @@
+{
+  "name": "Forest",
+  "author": "Mote",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uSat;\nuniform float uHaze;\nvoid main() {\n    vec3 src = texture2D(uTexture, vTexCoord).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    vec3 green = vec3(lum * 0.7, lum * 1.05, lum * 0.65);\n    green = mix(vec3(lum), green, uSat);\n    vec3 tinted = green * vec3(0.92, 1.02, 0.88);\n    vec3 col = mix(src, tinted, uIntensity);\n    col = mix(col, vec3(lum * 0.85, lum * 0.95, lum * 0.80), uHaze * 0.3);\n    gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n}\n",
+  "paramDefs": {
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.7 },
+    "uSat":       { "label": "Saturación", "min": 0.0, "max": 2.0, "default": 1.0 },
+    "uHaze":      { "label": "Neblina", "min": 0.0, "max": 1.0, "default": 0.2 }
+  }
+}

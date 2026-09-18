@@ -1,0 +1,16 @@
+{
+  "name": "Gameboy",
+  "author": "Ale",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uPaletteSteps;\nuniform float uDotSize;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 pixUV = floor(uv * uDotSize) / uDotSize;\n    vec4 col = texture2D(uTexture, pixUV + 0.5 / uDotSize);\n    float lum = dot(col.rgb, vec3(0.299, 0.587, 0.114));\n    lum = floor(lum * uPaletteSteps) / uPaletteSteps;\n    vec3 c0 = vec3(0.61, 0.74, 0.06);\n    vec3 c1 = vec3(0.46, 0.61, 0.06);\n    vec3 c2 = vec3(0.19, 0.38, 0.19);\n    vec3 c3 = vec3(0.06, 0.22, 0.06);\n    vec3 gbColor;\n    if (lum > 0.75) gbColor = c0;\n    else if (lum > 0.5) gbColor = c1;\n    else if (lum > 0.25) gbColor = c2;\n    else gbColor = c3;\n    vec2 sub = fract(uv * uDotSize);\n    float dot = smoothstep(0.55, 0.45, length(sub - 0.5));\n    gbColor *= dot;\n    gl_FragColor = vec4(gbColor, col.a);\n}",
+  "params": {
+    "uPaletteSteps": 4.0,
+    "uDotSize": 80.0
+  },
+  "paramDefs": {
+    "uPaletteSteps": { "label": "Niveles de color", "min": 2.0, "max": 8.0, "default": 4.0 },
+    "uDotSize": { "label": "Resolución de píxel", "min": 20.0, "max": 200.0, "default": 80.0 }
+  }
+}

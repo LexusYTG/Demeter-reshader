@@ -1,0 +1,15 @@
+{
+  "name": "Plasma",
+  "author": "Nite",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uScale;\nuniform float uSpeed;\nuniform float uIntensity;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    float t = uTime * uSpeed;\n    float v = sin(uv.x * 10.0 * uScale + t);\n    v += sin((uv.y * 10.0 * uScale + t) * 0.5);\n    v += sin((uv.x * 10.0 * uScale + uv.y * 10.0 * uScale + t) * 0.5);\n    float cx = uv.x + 0.5 * sin(t * 0.33);\n    float cy = uv.y + 0.5 * cos(t * 0.5);\n    v += sin(sqrt(100.0 * uScale * (cx * cx + cy * cy) + 1.0) + t);\n    v *= 0.25;\n    vec3 tint = vec3(sin(v * 3.14159), sin(v * 3.14159 + 2.094), sin(v * 3.14159 + 4.189));\n    tint = tint * 0.5 + 0.5;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 col = mix(src, tint, uIntensity * 0.7);\n    col = mix(col, src + tint * 0.5, 0.5);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uScale":     { "label": "Escala", "min": 0.5, "max": 4.0, "default": 1.0 },
+    "uSpeed":     { "label": "Velocidad", "min": 0.0, "max": 4.0, "default": 1.0 },
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.7 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

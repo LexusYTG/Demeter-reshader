@@ -1,0 +1,12 @@
+{
+  "name": "NES",
+  "author": "Ale",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uLevels;\nuniform float uDither;\nfloat bayer(vec2 p){\n    vec2 q = mod(floor(p), 4.0);\n    float m = 0.0;\n    if (q.y < 0.5)      m = (q.x < 0.5) ? 0.0 : ((q.x < 1.5) ? 8.0 : ((q.x < 2.5) ? 2.0 : 10.0));\n    else if (q.y < 1.5) m = (q.x < 0.5) ? 12.0 : ((q.x < 1.5) ? 4.0 : ((q.x < 2.5) ? 14.0 : 6.0));\n    else if (q.y < 2.5) m = (q.x < 0.5) ? 3.0 : ((q.x < 1.5) ? 11.0 : ((q.x < 2.5) ? 1.0 : 9.0));\n    else                m = (q.x < 0.5) ? 15.0 : ((q.x < 1.5) ? 7.0 : ((q.x < 2.5) ? 13.0 : 5.0));\n    return m / 16.0;\n}\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    float d = bayer(uv * 256.0) - 0.5;\n    src += d * uDither;\n    float levels = max(2.0, floor(uLevels));\n    vec3 col = floor(src * levels + 0.5) / levels;\n    col = mix(col, col * vec3(1.0, 0.95, 0.85), 0.3);\n    gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n}\n",
+  "paramDefs": {
+    "uLevels": { "label": "Niveles", "min": 3.0, "max": 12.0, "default": 6.0 },
+    "uDither": { "label": "Dithering", "min": 0.0, "max": 1.0, "default": 0.5 }
+  }
+}

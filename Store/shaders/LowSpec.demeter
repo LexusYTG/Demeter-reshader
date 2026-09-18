@@ -1,0 +1,12 @@
+{
+  "name": "Low Spec",
+  "author": "LexusYTG",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uBits;\nuniform float uDither;\nfloat bayer(vec2 p){\n    vec2 q = mod(floor(p), 4.0);\n    float m = 0.0;\n    if (q.y < 0.5) {\n        if (q.x < 0.5) m = 0.0;\n        else if (q.x < 1.5) m = 8.0;\n        else if (q.x < 2.5) m = 2.0;\n        else m = 10.0;\n    } else if (q.y < 1.5) {\n        if (q.x < 0.5) m = 12.0;\n        else if (q.x < 1.5) m = 4.0;\n        else if (q.x < 2.5) m = 14.0;\n        else m = 6.0;\n    } else if (q.y < 2.5) {\n        if (q.x < 0.5) m = 3.0;\n        else if (q.x < 1.5) m = 11.0;\n        else if (q.x < 2.5) m = 1.0;\n        else m = 9.0;\n    } else {\n        if (q.x < 0.5) m = 15.0;\n        else if (q.x < 1.5) m = 7.0;\n        else if (q.x < 2.5) m = 13.0;\n        else m = 5.0;\n    }\n    return m / 16.0;\n}\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    float d = bayer(uv * 512.0) - 0.5;\n    vec3 dithered = src + d * uDither;\n    float levels = pow(2.0, floor(uBits));\n    vec3 col = floor(dithered * levels + 0.5) / levels;\n    gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n}\n",
+  "paramDefs": {
+    "uBits":   { "label": "Bits por canal", "min": 1.0, "max": 6.0, "default": 4.0 },
+    "uDither": { "label": "Dithering", "min": 0.0, "max": 1.0, "default": 0.3 }
+  }
+}

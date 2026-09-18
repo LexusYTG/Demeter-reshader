@@ -1,0 +1,14 @@
+{
+  "name": "Fire",
+  "author": "AnaCronix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uSpeed;\nuniform float uTime;\nfloat hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nfloat noise(vec2 p){\n    vec2 i = floor(p); vec2 f = fract(p);\n    f = f * f * (3.0 - 2.0 * f);\n    float a = hash(i);\n    float b = hash(i + vec2(1.0, 0.0));\n    float c = hash(i + vec2(0.0, 1.0));\n    float d = hash(i + vec2(1.0, 1.0));\n    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\nvoid main() {\n    vec2 uv = vTexCoord;\n    float t = uTime * uSpeed;\n    float heat  = noise(vec2(uv.x * 8.0,  uv.y * 6.0  - t * 2.0));\n    float heat2 = noise(vec2(uv.x * 16.0 + 5.0, uv.y * 12.0 - t * 3.5));\n    float dist = (heat * 0.6 + heat2 * 0.4 - 0.5) * 0.02 * uIntensity;\n    float mask = 1.0 - uv.y;\n    vec2 warped = uv + vec2(dist, -abs(dist) * mask);\n    vec3 col = texture2D(uTexture, warped).rgb;\n    float edge = 1.0 - smoothstep(0.0, 0.4, min(min(uv.x, 1.0 - uv.x), uv.y));\n    vec3 tint = vec3(1.0, 0.4, 0.1);\n    col = mix(col, col * tint + tint * 0.2, edge * uIntensity);\n    vec2 eUV = vec2(floor(uv.x * 40.0), floor(uv.y * 40.0 - t * 4.0));\n    float ember = step(0.99, hash(eUV));\n    col += vec3(1.0, 0.6, 0.2) * ember * uIntensity;\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 2.0, "default": 1.0 },
+    "uSpeed":     { "label": "Velocidad", "min": 0.0, "max": 4.0, "default": 1.5 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

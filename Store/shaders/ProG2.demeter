@@ -1,0 +1,13 @@
+{
+  "name": "Pro G2",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uSaturation;\nuniform float uContrast;\nuniform float uVibrance;\nvoid main() {\n    vec3 src = texture2D(uTexture, vTexCoord).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    vec3 sat = mix(vec3(lum), src, 1.0 + uSaturation);\n    float mx = max(max(sat.r, sat.g), sat.b);\n    float mn = min(min(sat.r, sat.g), sat.b);\n    float satAmt = mx - mn;\n    vec3 vibrant = mix(sat, sat * (1.0 + satAmt), uVibrance);\n    vec3 col = clamp((vibrant - 0.5) * (1.0 + uContrast) + 0.5, 0.0, 1.0);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "paramDefs": {
+    "uSaturation": { "label": "Saturación", "min": -1.0, "max": 1.0, "default": 0.25 },
+    "uContrast":   { "label": "Contraste", "min": -0.5, "max": 1.0, "default": 0.15 },
+    "uVibrance":   { "label": "Vibrancia", "min": 0.0, "max": 1.0, "default": 0.4 }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "Liquid",
+  "author": "AnaCronix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uSpeed;\nuniform float uIntensity;\nuniform float uViscosity;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    float t = uTime * uSpeed;\n    float w1 = sin(uv.y * 12.0 * uViscosity + t * 2.0);\n    float w2 = sin(uv.y * 20.0 * uViscosity + t * 3.0 + 1.3) * 0.5;\n    float w3 = sin(uv.y * 6.0  * uViscosity + t * 1.5 + 0.7);\n    float offX = (w1 + w2 + w3) * 0.015 * uIntensity;\n    float h1 = sin(uv.x * 10.0 * uViscosity + t * 2.3);\n    float h2 = sin(uv.x * 17.0 * uViscosity + t * 1.7 + 2.1) * 0.5;\n    float offY = (h1 + h2) * 0.010 * uIntensity;\n    vec2 w = uv + vec2(offX, offY);\n    vec3 col;\n    col.r = texture2D(uTexture, w + vec2(offX * 0.3, 0.0)).r;\n    col.g = texture2D(uTexture, w).g;\n    col.b = texture2D(uTexture, w - vec2(offX * 0.3, 0.0)).b;\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uSpeed":     { "label": "Velocidad", "min": 0.0, "max": 5.0, "default": 1.0 },
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 3.0, "default": 1.0 },
+    "uViscosity": { "label": "Viscosidad", "min": 0.3, "max": 3.0, "default": 1.0 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

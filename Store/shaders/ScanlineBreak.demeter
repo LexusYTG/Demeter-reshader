@@ -1,0 +1,14 @@
+{
+  "name": "Scanline Break",
+  "author": "Ale",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uSpeed;\nuniform float uTime;\nfloat hash(float n){ return fract(sin(n) * 43758.5453); }\nvoid main() {\n    vec2 uv = vTexCoord;\n    float line = floor(uv.y * 200.0);\n    float band = floor(uv.y * 6.0);\n    float t = floor(uTime * uSpeed * 10.0);\n    float bandSeed = hash(band + t);\n    float lineSeed = hash(line + band * 13.0 + t * 0.3);\n    float offset = 0.0;\n    if (bandSeed > 0.6) {\n        offset = (bandSeed - 0.5) * 0.2 * uIntensity;\n        if (lineSeed > 0.8) offset *= 2.0;\n    }\n    vec2 srcUV = uv + vec2(offset, 0.0);\n    srcUV.x = fract(srcUV.x);\n    vec3 col = texture2D(uTexture, srcUV).rgb;\n    if (abs(offset) > 0.001) {\n        float sep = offset * 0.3;\n        col.r = texture2D(uTexture, vec2(fract(srcUV.x + sep), srcUV.y)).r;\n        col.b = texture2D(uTexture, vec2(fract(srcUV.x - sep), srcUV.y)).b;\n    }\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 3.0, "default": 1.0 },
+    "uSpeed":     { "label": "Velocidad", "min": 0.1, "max": 8.0, "default": 2.0 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

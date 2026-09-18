@@ -1,0 +1,16 @@
+{
+  "name": "Neon Grid",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uGridSize;\nuniform float uIntensity;\nuniform float uSpeed;\nuniform float uHorizon;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 col = texture2D(uTexture, uv).rgb;\n    float horizon = uHorizon;\n    float persp = 1.0 / max(0.02, (uv.y - horizon));\n    float scroll = uTime * uSpeed;\n    float gx = uv.x * uGridSize;\n    float lineX = smoothstep(0.95, 1.0, abs(fract(gx) - 0.5) * 2.0);\n    float gy = persp * 2.0 + scroll;\n    float lineY = smoothstep(0.9, 1.0, abs(fract(gy) - 0.5) * 2.0);\n    float grid = max(lineX, lineY) * step(horizon, uv.y);\n    vec3 gridColor = mix(vec3(1.0, 0.1, 0.8), vec3(0.1, 0.9, 1.0), clamp(lineY, 0.0, 1.0));\n    col = mix(col, col + gridColor, grid * uIntensity);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uGridSize":  { "label": "Densidad rejilla", "min": 4.0, "max": 40.0, "default": 14.0 },
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 2.0, "default": 1.0 },
+    "uSpeed":     { "label": "Velocidad", "min": 0.0, "max": 3.0, "default": 0.5 },
+    "uHorizon":   { "label": "Horizonte", "min": 0.0, "max": 0.9, "default": 0.5 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

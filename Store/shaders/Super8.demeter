@@ -1,0 +1,15 @@
+{
+  "name": "Super 8",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uGrain;\nuniform float uHair;\nuniform float uFlicker;\nuniform float uTime;\nfloat hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nvoid main() {\n    vec2 uv = vTexCoord;\n    float flick = 1.0 - uFlicker * 0.3 * hash(vec2(floor(uTime * 18.0), 1.0));\n    vec2 ji = vec2(hash(vec2(floor(uTime*18.0),2.0)), hash(vec2(floor(uTime*18.0),3.0))) - 0.5;\n    uv += ji * 0.006;\n    vec3 col = texture2D(uTexture, uv).rgb * flick;\n    float l = dot(col, vec3(0.299, 0.587, 0.114));\n    col = mix(col, vec3(l), 0.2);\n    col *= vec3(1.05, 0.98, 0.85);\n    float g = hash(uv * 500.0 + uTime * 30.0) - 0.5;\n    col += g * uGrain;\n    float hair = step(1.0 - 0.003 * uHair, abs(sin(uv.x * 300.0 + floor(uTime * 3.0))));\n    col = mix(col, vec3(0.05), hair * 0.7);\n    vec2 c = uv - 0.5;\n    float vig = 1.0 - smoothstep(0.35, 0.75, length(c));\n    col *= mix(0.5, 1.0, vig);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uGrain":   { "label": "Grano", "min": 0.0, "max": 0.3, "default": 0.12 },
+    "uHair":    { "label": "Pelos", "min": 0.0, "max": 1.0, "default": 0.5 },
+    "uFlicker": { "label": "Parpadeo", "min": 0.0, "max": 1.0, "default": 0.4 },
+    "uTime":    { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

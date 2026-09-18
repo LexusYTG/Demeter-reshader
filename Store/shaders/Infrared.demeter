@@ -1,0 +1,16 @@
+{
+  "name": "Infrared",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uContrast;\nuniform float uGlow;\nvoid main() {\n    vec4 col = texture2D(uTexture, vTexCoord);\n    float lum = dot(col.rgb, vec3(0.299, 0.587, 0.114));\n    lum = clamp((lum - 0.5) * uContrast + 0.5, 0.0, 1.0);\n    vec3 ir;\n    if (lum < 0.25) {\n        ir = mix(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.5), lum * 4.0);\n    } else if (lum < 0.5) {\n        ir = mix(vec3(0.0, 0.0, 0.5), vec3(0.0, 0.5, 0.0), (lum - 0.25) * 4.0);\n    } else if (lum < 0.75) {\n        ir = mix(vec3(0.0, 0.5, 0.0), vec3(1.0, 0.5, 0.0), (lum - 0.5) * 4.0);\n    } else {\n        ir = mix(vec3(1.0, 0.5, 0.0), vec3(1.0, 1.0, 1.0), (lum - 0.75) * 4.0);\n    }\n    ir += vec3(uGlow * lum * 0.3);\n    gl_FragColor = vec4(ir, col.a);\n}",
+  "params": {
+    "uContrast": 1.4,
+    "uGlow": 0.5
+  },
+  "paramDefs": {
+    "uContrast": { "label": "Contraste", "min": 0.5, "max": 3.0, "default": 1.4 },
+    "uGlow": { "label": "Brillo caliente", "min": 0.0, "max": 1.0, "default": 0.5 }
+  }
+}

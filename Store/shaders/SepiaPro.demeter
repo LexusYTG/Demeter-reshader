@@ -1,0 +1,13 @@
+{
+  "name": "Sepia Pro",
+  "author": "AnaCronix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uWarmth;\nuniform float uIntensity;\nuniform float uBloom;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    vec3 warm = vec3(1.0, 0.85, 0.65);\n    vec3 cool = vec3(0.85, 0.90, 1.00);\n    vec3 tint = mix(warm, cool, (1.0 - uWarmth) * 0.5);\n    vec3 col = vec3(lum) * tint;\n    float bloomAmt = smoothstep(0.7, 1.0, lum) * uBloom;\n    col += vec3(bloomAmt * 0.4);\n    gl_FragColor = vec4(mix(src, col, uIntensity), 1.0);\n}\n",
+  "paramDefs": {
+    "uWarmth":    { "label": "Calidez", "min": -1.0, "max": 1.0, "default": 0.5 },
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 1.0 },
+    "uBloom":     { "label": "Bloom", "min": 0.0, "max": 1.0, "default": 0.3 }
+  }
+}

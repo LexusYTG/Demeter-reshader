@@ -1,0 +1,13 @@
+{
+  "name": "Radar",
+  "author": "Yuki",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uThreshold;\nuniform float uGlow;\nuniform float uKeepOrig;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 px = vec2(0.0015);\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 n = texture2D(uTexture, uv + vec2(0.0, -px.y)).rgb;\n    vec3 s = texture2D(uTexture, uv + vec2(0.0,  px.y)).rgb;\n    vec3 e = texture2D(uTexture, uv + vec2( px.x, 0.0)).rgb;\n    vec3 w = texture2D(uTexture, uv + vec2(-px.x, 0.0)).rgb;\n    float dx = length(e - w);\n    float dy = length(n - s);\n    float edge = sqrt(dx * dx + dy * dy);\n    float isEdge = step(uThreshold, edge);\n    vec3 radar = vec3(0.0, edge * 2.0 * uGlow, edge * 0.3 * uGlow);\n    radar = vec3(max(0.0, edge * 3.0 * uGlow));\n    vec3 col = mix(src, radar, isEdge);\n    col = mix(col, src * 0.3, 1.0 - uKeepOrig);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "paramDefs": {
+    "uThreshold": { "label": "Umbral borde", "min": 0.05, "max": 0.8, "default": 0.25 },
+    "uGlow":      { "label": "Glow", "min": 0.0, "max": 3.0, "default": 1.5 },
+    "uKeepOrig":  { "label": "Conservar color", "min": 0.0, "max": 1.0, "default": 0.2 }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "ChromaBleed",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uSpreadH;\nuniform float uSpreadV;\nuniform float uFade;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec4 r = texture2D(uTexture, clamp(uv + vec2(uSpreadH * 0.012, uSpreadV * 0.003), 0.0, 1.0));\n    vec4 g = texture2D(uTexture, uv);\n    vec4 b = texture2D(uTexture, clamp(uv - vec2(uSpreadH * 0.012, uSpreadV * 0.003), 0.0, 1.0));\n    vec4 col = vec4(r.r, g.g, b.b, g.a);\n    col.r += texture2D(uTexture, clamp(uv + vec2(uSpreadH * 0.025, 0.0), 0.0, 1.0)).r * uFade * 0.4;\n    col.b += texture2D(uTexture, clamp(uv - vec2(uSpreadH * 0.025, 0.0), 0.0, 1.0)).b * uFade * 0.4;\n    gl_FragColor = clamp(col, 0.0, 1.0);\n}",
+  "params": {
+    "uSpreadH": 1.0,
+    "uSpreadV": 0.3,
+    "uFade": 0.5
+  },
+  "paramDefs": {
+    "uSpreadH": { "label": "Sangrado horizontal", "min": 0.0, "max": 3.0, "default": 1.0 },
+    "uSpreadV": { "label": "Sangrado vertical", "min": 0.0, "max": 1.0, "default": 0.3 },
+    "uFade": { "label": "Intensidad de doble borde", "min": 0.0, "max": 1.0, "default": 0.5 }
+  }
+}

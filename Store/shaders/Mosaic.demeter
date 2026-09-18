@@ -1,0 +1,17 @@
+{
+  "name": "Mosaic",
+  "author": "LexusYTG",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uTime;\nuniform float uTiles;\nuniform float uRotate;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 tile = floor(uv * uTiles);\n    vec2 local = fract(uv * uTiles) - 0.5;\n    float seed = fract(sin(dot(tile, vec2(12.9898, 78.233))) * 43758.5453);\n    float angle = seed * 6.2831 * uRotate;\n    float c = cos(angle), s = sin(angle);\n    local = vec2(c * local.x - s * local.y, s * local.x + c * local.y);\n    vec2 sampleUV = tile / uTiles + (local + 0.5) / uTiles;\n    sampleUV = clamp(sampleUV, 0.001, 0.999);\n    vec4 col = texture2D(uTexture, sampleUV);\n    vec3 hue = vec3(\n        abs(sin(seed * 6.28 + uTime * 0.3)),\n        abs(sin(seed * 6.28 + 2.09 + uTime * 0.3)),\n        abs(sin(seed * 6.28 + 4.18 + uTime * 0.3))\n    );\n    col.rgb = mix(col.rgb, hue, 0.15);\n    gl_FragColor = col;\n}",
+  "params": {
+    "uTime": 0.0,
+    "uTiles": 8.0,
+    "uRotate": 0.5
+  },
+  "paramDefs": {
+    "uTiles": { "label": "Cantidad de teselas", "min": 2.0, "max": 30.0, "default": 8.0 },
+    "uRotate": { "label": "Rotación aleatoria", "min": 0.0, "max": 1.0, "default": 0.5 }
+  }
+}
