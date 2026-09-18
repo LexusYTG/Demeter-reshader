@@ -17,6 +17,8 @@ import android.content.*;
 import android.graphics.*;
 import android.graphics.drawable.*;
 import android.os.*;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.*;
 import android.view.*;
 import android.widget.*;
@@ -44,6 +46,17 @@ public class FiltersActivity extends Activity {
     private Switch        mFpsSwitch = null;
     private TextView      mBtnFpsPosition = null;
 
+    // Filtros
+    private EditText             mSearch;
+    private HorizontalScrollView mAuthorChipsScroll;
+    private LinearLayout         mAuthorChips;
+    private HorizontalScrollView mTypeChipsScroll;
+    private LinearLayout         mTypeChips;
+
+    private String      mQuery          = "";
+    private String      mSelectedAuthor = null;
+    private Module.Type mSelectedType   = null;
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
@@ -66,6 +79,8 @@ public class FiltersActivity extends Activity {
         mModuleManager = new ModuleManager(this);
 
         setContentView(buildRoot());
+        rebuildAuthorChips();
+        rebuildTypeChips();
         rebuildList();
     }
 
@@ -82,6 +97,12 @@ public class FiltersActivity extends Activity {
             mFpsSwitch.setChecked(mFpsOverlay);
         }
         updateFpsPositionButtonState();
+
+        // Los módulos pueden haber cambiado si volvimos de la tienda
+        mModuleManager.reload();
+        rebuildAuthorChips();
+        rebuildTypeChips();
+        rebuildList();
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -111,15 +132,13 @@ public class FiltersActivity extends Activity {
 
         root.addView(buildHeader());
 
-        TextView desc = Ui.text(this,
-                                "Activa los filtros para apilarlos. El orden importa: el resultado de uno es la entrada del siguiente.",
-                                13, Ui.TEXT_TERTIARY, false);
-        desc.setLineSpacing(Ui.dp(this, 3), 1f);
-        int side = Ui.dp(this, 20);
-        desc.setPadding(side, 0, side, Ui.dp(this, 14));
-        root.addView(desc);
-
         root.addView(buildFpsOverlayRow());
+
+        root.addView(buildSearchRow());
+
+        root.addView(buildAuthorChipsRow());
+
+        root.addView(buildTypeChipsRow());
 
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
@@ -133,6 +152,10 @@ public class FiltersActivity extends Activity {
         return root;
     }
 
+    // -------------------------------------------------------------------------
+    // Header
+    // -------------------------------------------------------------------------
+
     private View buildHeader() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -140,7 +163,7 @@ public class FiltersActivity extends Activity {
         int p = Ui.dp(this, 16);
         row.setPadding(p, p, p, p);
 
-        TextView back = makeIconButton("✕");
+        TextView back = makeIconButton("\u2715");
         back.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { finish(); }
             });
@@ -176,6 +199,241 @@ public class FiltersActivity extends Activity {
         return tv;
     }
 
+    // -------------------------------------------------------------------------
+    // Buscador
+    // -------------------------------------------------------------------------
+
+    private View buildSearchRow() {
+        FrameLayout wrap = new FrameLayout(this);
+        wrap.setBackground(Ui.roundRectStroke(
+                               Ui.BG_SURFACE, Ui.DIVIDER, this, 12, 1f));
+
+        LinearLayout inner = new LinearLayout(this);
+        inner.setOrientation(LinearLayout.HORIZONTAL);
+        inner.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Ui.dp(this, 12);
+        inner.setPadding(pad, 0, pad, 0);
+        wrap.addView(inner, new FrameLayout.LayoutParams(MP, MP));
+
+        TextView icon = Ui.text(this, "\uD83D\uDD0D", 14, Ui.TEXT_TERTIARY, false);
+        inner.addView(icon);
+
+        mSearch = new EditText(this);
+        mSearch.setHint("Buscar filtro o autor…");
+        mSearch.setHintTextColor(Ui.TEXT_TERTIARY);
+        mSearch.setTextColor(Ui.TEXT_PRIMARY);
+        mSearch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        mSearch.setBackgroundColor(0x00000000);
+        mSearch.setSingleLine(true);
+        mSearch.setPadding(Ui.dp(this, 10), 0, 0, 0);
+        inner.addView(mSearch, Ui.lp(0, MP, 1f));
+
+        mSearch.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void afterTextChanged(Editable s) {
+                    mQuery = s.toString().trim().toLowerCase();
+                    rebuildList();
+                }
+            });
+
+        LinearLayout.LayoutParams lp = Ui.lp(MP, Ui.dp(this, 44));
+        lp.leftMargin   = Ui.dp(this, 14);
+        lp.rightMargin  = Ui.dp(this, 14);
+        lp.topMargin    = Ui.dp(this, 4);
+        lp.bottomMargin = Ui.dp(this, 6);
+        wrap.setLayoutParams(lp);
+
+        return wrap;
+    }
+
+    // -------------------------------------------------------------------------
+    // Chips de autores
+    // -------------------------------------------------------------------------
+
+    private View buildAuthorChipsRow() {
+        LinearLayout holder = new LinearLayout(this);
+        holder.setOrientation(LinearLayout.HORIZONTAL);
+        int side = Ui.dp(this, 14);
+        holder.setPadding(side, Ui.dp(this, 2), side, 0);
+
+        mAuthorChipsScroll = new HorizontalScrollView(this);
+        mAuthorChipsScroll.setHorizontalScrollBarEnabled(false);
+        mAuthorChips = new LinearLayout(this);
+        mAuthorChips.setOrientation(LinearLayout.HORIZONTAL);
+        mAuthorChipsScroll.addView(mAuthorChips,
+                                   new FrameLayout.LayoutParams(WC, WC));
+
+        LinearLayout.LayoutParams scrollLp = Ui.lp(0, Ui.dp(this, 34), 1f);
+        holder.addView(mAuthorChipsScroll, scrollLp);
+
+        return holder;
+    }
+
+    private void rebuildAuthorChips() {
+        if (mAuthorChips == null) return;
+        mAuthorChips.removeAllViews();
+
+        TreeSet<String> authors = new TreeSet<String>();
+        for (Module m : mModuleManager.getAll()) {
+            String a = m.getAuthor();
+            if (a != null && !a.isEmpty()) authors.add(a);
+        }
+
+        // Validar selección actual
+        if (mSelectedAuthor != null && !authors.contains(mSelectedAuthor)) {
+            mSelectedAuthor = null;
+        }
+
+        mAuthorChips.addView(makeFilterChip(
+								 "Todos", mSelectedAuthor == null,
+								 new Runnable() {
+									 @Override public void run() {
+										 mSelectedAuthor = null;
+										 rebuildAuthorChips();
+										 rebuildList();
+									 }
+								 }));
+
+        for (final String a : authors) {
+            boolean sel = a.equals(mSelectedAuthor);
+            mAuthorChips.addView(makeFilterChip(
+									 a, sel,
+									 new Runnable() {
+										 @Override public void run() {
+											 mSelectedAuthor = a;
+											 rebuildAuthorChips();
+											 rebuildList();
+										 }
+									 }));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Chips de tipo
+    // -------------------------------------------------------------------------
+
+    private View buildTypeChipsRow() {
+        LinearLayout holder = new LinearLayout(this);
+        holder.setOrientation(LinearLayout.HORIZONTAL);
+        int side = Ui.dp(this, 14);
+        holder.setPadding(side, Ui.dp(this, 2), side, Ui.dp(this, 4));
+
+        mTypeChipsScroll = new HorizontalScrollView(this);
+        mTypeChipsScroll.setHorizontalScrollBarEnabled(false);
+        mTypeChips = new LinearLayout(this);
+        mTypeChips.setOrientation(LinearLayout.HORIZONTAL);
+        mTypeChipsScroll.addView(mTypeChips,
+                                 new FrameLayout.LayoutParams(WC, WC));
+
+        LinearLayout.LayoutParams scrollLp = Ui.lp(0, Ui.dp(this, 34), 1f);
+        holder.addView(mTypeChipsScroll, scrollLp);
+
+        return holder;
+    }
+
+    private void rebuildTypeChips() {
+        if (mTypeChips == null) return;
+        mTypeChips.removeAllViews();
+
+        mTypeChips.addView(makeFilterChip(
+							   "Todos", mSelectedType == null,
+							   new Runnable() {
+								   @Override public void run() {
+									   mSelectedType = null;
+									   rebuildTypeChips();
+									   rebuildList();
+								   }
+							   }));
+
+        mTypeChips.addView(makeFilterChip(
+							   "MOD", mSelectedType == Module.Type.MODIFIER,
+							   new Runnable() {
+								   @Override public void run() {
+									   mSelectedType = Module.Type.MODIFIER;
+									   rebuildTypeChips();
+									   rebuildList();
+								   }
+							   }));
+
+        mTypeChips.addView(makeFilterChip(
+							   "RENDERER", mSelectedType == Module.Type.RENDERER,
+							   new Runnable() {
+								   @Override public void run() {
+									   mSelectedType = Module.Type.RENDERER;
+									   rebuildTypeChips();
+									   rebuildList();
+								   }
+							   }));
+
+        mTypeChips.addView(makeFilterChip(
+							   "FRAMEGEN", mSelectedType == Module.Type.FRAMEGEN,
+							   new Runnable() {
+								   @Override public void run() {
+									   mSelectedType = Module.Type.FRAMEGEN;
+									   rebuildTypeChips();
+									   rebuildList();
+								   }
+							   }));
+    }
+
+    private TextView makeFilterChip(String label, boolean selected,
+                                    final Runnable onSelect) {
+        TextView chip = new TextView(this);
+        chip.setText(label);
+        chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        chip.setTypeface(Ui.medium());
+        chip.setGravity(Gravity.CENTER);
+        chip.setSingleLine(true);
+
+        int hp = Ui.dp(this, 14);
+        int vp = Ui.dp(this, 6);
+        chip.setPadding(hp, vp, hp, vp);
+
+        if (selected) {
+            chip.setTextColor(0xFFFFFFFF);
+            chip.setBackground(Ui.roundRect(Ui.ACCENT, this, 20));
+        } else {
+            chip.setTextColor(Ui.TEXT_SECOND);
+            chip.setBackground(Ui.roundRectStroke(
+                                   Ui.BG_SURFACE, Ui.DIVIDER, this, 20, 1f));
+        }
+
+        chip.setClickable(true);
+        chip.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { onSelect.run(); }
+            });
+
+        LinearLayout.LayoutParams lp = Ui.lp(WC, WC);
+        lp.rightMargin = Ui.dp(this, 6);
+        chip.setLayoutParams(lp);
+        return chip;
+    }
+
+    // -------------------------------------------------------------------------
+    // Lista con filtros aplicados
+    // -------------------------------------------------------------------------
+
+    private boolean matchesFilter(Module m) {
+        if (mSelectedAuthor != null) {
+            if (m.getAuthor() == null || !m.getAuthor().equals(mSelectedAuthor)) {
+                return false;
+            }
+        }
+        if (mSelectedType != null) {
+            if (m.getType() != mSelectedType) return false;
+        }
+        if (!mQuery.isEmpty()) {
+            boolean hit = false;
+            if (m.getName() != null
+                && m.getName().toLowerCase().contains(mQuery)) hit = true;
+            if (!hit && m.getAuthor() != null
+                && m.getAuthor().toLowerCase().contains(mQuery)) hit = true;
+            if (!hit) return false;
+        }
+        return true;
+    }
+
     private void rebuildList() {
         mLlFilters.removeAllViews();
 
@@ -191,10 +449,26 @@ public class FiltersActivity extends Activity {
             if (!isActive) available.add(m);
         }
 
+        // Aplicar filtros a las dos listas (sin alterar el orden de la cadena)
+        List<Module> activeVisible    = new ArrayList<Module>();
+        List<Module> availableVisible = new ArrayList<Module>();
+
+        for (int i = 0; i < active.size(); i++) {
+            Module m = active.get(i);
+            if (matchesFilter(m)) activeVisible.add(m);
+        }
+        for (Module m : available) {
+            if (matchesFilter(m)) availableVisible.add(m);
+        }
+
+        boolean anyFilter = !mQuery.isEmpty()
+            || mSelectedAuthor != null
+            || mSelectedType != null;
+
         if (active.isEmpty() && available.isEmpty()) {
             TextView tv = Ui.text(this,
-                                  "No hay filtros instalados.\nUsa el botón + en la pantalla principal para importar uno.",
-                                  14, Ui.TEXT_TERTIARY, false);
+								  "No hay filtros instalados.\nUsa el botón + en la pantalla principal para importar uno.",
+								  14, Ui.TEXT_TERTIARY, false);
             tv.setGravity(Gravity.CENTER);
             tv.setPadding(0, Ui.dp(this, 60), 0, 0);
             mLlFilters.addView(tv);
@@ -202,23 +476,39 @@ public class FiltersActivity extends Activity {
             return;
         }
 
-        if (!active.isEmpty()) {
+        if (anyFilter && activeVisible.isEmpty() && availableVisible.isEmpty()) {
+            TextView tv = Ui.text(this,
+								  "No hay filtros que coincidan con la búsqueda",
+								  14, Ui.TEXT_TERTIARY, false);
+            tv.setGravity(Gravity.CENTER);
+            tv.setPadding(0, Ui.dp(this, 60), 0, 0);
+            mLlFilters.addView(tv);
+            mTvCount.setText(String.valueOf(active.size()));
+            return;
+        }
+
+        if (!activeVisible.isEmpty()) {
             mLlFilters.addView(sectionHeader("CADENA ACTIVA (" + active.size() + ")"));
             for (int i = 0; i < active.size(); i++) {
-                final int pos = i;
-                mLlFilters.addView(buildRow(active.get(i), pos, active.size(), true));
+                Module m = active.get(i);
+                if (!matchesFilter(m)) continue;
+                mLlFilters.addView(buildRow(m, i, active.size(), true));
             }
         }
 
-        if (!available.isEmpty()) {
+        if (!availableVisible.isEmpty()) {
             mLlFilters.addView(sectionHeader("DISPONIBLES (" + available.size() + ")"));
-            for (Module m : available) {
+            for (Module m : availableVisible) {
                 mLlFilters.addView(buildRow(m, -1, 0, false));
             }
         }
 
         mTvCount.setText(String.valueOf(active.size()));
     }
+
+    // -------------------------------------------------------------------------
+    // Render de filas
+    // -------------------------------------------------------------------------
 
     private TextView sectionHeader(String s) {
         TextView tv = Ui.text(this, s, 11, Ui.TEXT_TERTIARY, true);
@@ -305,7 +595,7 @@ public class FiltersActivity extends Activity {
 
         if (isActive) {
             if (position > 0) {
-                TextView up = makeIconButton("↑");
+                TextView up = makeIconButton("\u2191");
                 up.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
                 up.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
@@ -318,7 +608,7 @@ public class FiltersActivity extends Activity {
                 row.addView(up, lpU);
             }
             if (position < activeCount - 1) {
-                TextView down = makeIconButton("↓");
+                TextView down = makeIconButton("\u2193");
                 down.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
                 down.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
@@ -339,7 +629,7 @@ public class FiltersActivity extends Activity {
             LinearLayout.LayoutParams gwLp = Ui.lp(Ui.dp(this, 40), Ui.dp(this, 40));
             gwLp.rightMargin = Ui.dp(this, 4);
 
-            TextView gear = makeIconButton("⚙");
+            TextView gear = makeIconButton("\u2699");
             gear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
 
             gear.setTextColor(hasCustomParams ? Ui.ACCENT : Ui.TEXT_SECOND);
@@ -496,7 +786,7 @@ public class FiltersActivity extends Activity {
             updateParamLabel(label, def.label, initialValue, showDecimal, isModified);
             labelRow.addView(label, Ui.lp(0, WC, 1f));
 
-            final TextView resetBtn = Ui.text(this, "↺", 16, Ui.TEXT_TERTIARY, false);
+            final TextView resetBtn = Ui.text(this, "\u21BA", 16, Ui.TEXT_TERTIARY, false);
             resetBtn.setGravity(Gravity.CENTER);
             resetBtn.setPadding(Ui.dp(this, 8), 0, 0, 0);
             resetBtn.setVisibility(isModified ? View.VISIBLE : View.INVISIBLE);
@@ -587,39 +877,28 @@ public class FiltersActivity extends Activity {
     }
 
     // -------------------------------------------------------------------------
-    // Fila del overlay de FPS: switch + botón de posición
+    // Fila del overlay de FPS
     // -------------------------------------------------------------------------
 
     private View buildFpsOverlayRow() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int side = Ui.dp(this, 20);
-        int vert = Ui.dp(this, 10);
+        int side = Ui.dp(this, 16);
+        int vert = Ui.dp(this, 8);
         row.setPadding(side, vert, side, vert);
         row.setBackground(Ui.roundRect(Ui.BG_SURFACE, this, 12));
 
         LinearLayout.LayoutParams rowLp = Ui.lp(MP, WC);
-        rowLp.leftMargin   = Ui.dp(this, 12);
-        rowLp.rightMargin  = Ui.dp(this, 12);
-        rowLp.bottomMargin = Ui.dp(this, 10);
+        rowLp.leftMargin   = Ui.dp(this, 14);
+        rowLp.rightMargin  = Ui.dp(this, 14);
+        rowLp.bottomMargin = Ui.dp(this, 6);
         row.setLayoutParams(rowLp);
 
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-
         TextView title = Ui.text(this, "Overlay de FPS", 14, Ui.TEXT_PRIMARY, true);
-        col.addView(title, Ui.lp(WC, WC));
+        row.addView(title, Ui.lp(0, WC, 1f));
 
-        TextView sub = Ui.text(this, "Muestra los FPS sobre la pantalla", 12, Ui.TEXT_TERTIARY, false);
-        LinearLayout.LayoutParams subLp = Ui.lp(WC, WC);
-        subLp.topMargin = Ui.dp(this, 2);
-        col.addView(sub, subLp);
-
-        row.addView(col, Ui.lp(0, WC, 1f));
-
-        // Botón de posición (pin)
-        mBtnFpsPosition = Ui.text(this, "📍", 18, Ui.TEXT_PRIMARY, false);
+        mBtnFpsPosition = Ui.text(this, "\uD83D\uDCCD", 18, Ui.TEXT_PRIMARY, false);
         mBtnFpsPosition.setGravity(Gravity.CENTER);
         mBtnFpsPosition.setBackground(Ui.buttonBgStroke(
                                           this, Ui.BG_ELEV, Ui.ACCENT_SOFT, Ui.DIVIDER, 22, 1f));
@@ -631,7 +910,7 @@ public class FiltersActivity extends Activity {
                         REQ_FPS_POSITION);
                 }
             });
-        LinearLayout.LayoutParams btnLp = Ui.lp(Ui.dp(this, 44), Ui.dp(this, 44));
+        LinearLayout.LayoutParams btnLp = Ui.lp(Ui.dp(this, 40), Ui.dp(this, 40));
         btnLp.rightMargin = Ui.dp(this, 8);
         row.addView(mBtnFpsPosition, btnLp);
 
@@ -680,8 +959,6 @@ public class FiltersActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_FPS_POSITION) {
             if (resultCode == RESULT_OK) {
-                // La posición ya se guardó en prefs dentro de FpsPositionActivity.
-                // Reemitimos el broadcast para que el servicio re-lea y reposicione.
                 Log.d(TAG, "onActivityResult FPS position: reemitiendo overlay");
                 sendFpsOverlayBroadcast(mFpsOverlay);
                 mChanged = true;
