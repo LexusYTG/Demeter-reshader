@@ -29,6 +29,7 @@ import android.text.TextWatcher;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -60,7 +61,6 @@ public class ShaderStoreActivity extends Activity {
     private static final String INDEX_URL =
 	"https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/main/Store/store_index.md";
 
-    // Cache del índice
     private static final String CACHE_PREFS = "shader_store_cache";
     private static final String KEY_INDEX_MD = "index_md";
     private static final String KEY_CACHE_MS = "cache_time_ms";
@@ -70,6 +70,8 @@ public class ShaderStoreActivity extends Activity {
     private static final int MP = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WC = ViewGroup.LayoutParams.WRAP_CONTENT;
 
+    private static final long SEARCH_DEBOUNCE_MS = 120L;
+
     private static final int[] ACCENT_PALETTE = {
         0xFF7C5CFF,
         0xFF4ADE80,
@@ -78,10 +80,6 @@ public class ShaderStoreActivity extends Activity {
         0xFFF472B6,
         0xFFA78BFA,
     };
-
-    // -------------------------------------------------------------------------
-    // Modelo
-    // -------------------------------------------------------------------------
 
     private static class ShaderEntry {
         String name;
@@ -97,12 +95,12 @@ public class ShaderStoreActivity extends Activity {
         List<ShaderEntry> entries = new ArrayList<ShaderEntry>();
     }
 
-    // -------------------------------------------------------------------------
-    // Estado
-    // -------------------------------------------------------------------------
-
     private final ExecutorService mPool = Executors.newCachedThreadPool();
     private final Handler         mUi   = new Handler(Looper.getMainLooper());
+
+    private final Runnable mSearchRunnable = new Runnable() {
+        @Override public void run() { renderCatalog(); }
+    };
 
     private ModuleManager mModuleManager;
     private List<Category> mCategories = new ArrayList<Category>();
@@ -127,13 +125,14 @@ public class ShaderStoreActivity extends Activity {
     private ProgressBar  mRefreshSpinner;
     private boolean      mRefreshing = false;
 
+    // ---- Estado de instalación (uno a la vez) ----
+    private volatile boolean mInstalling = false;
+    private View     mInstallOverlay;
+    private TextView mTvInstallLabel;
+
     private String mQuery            = "";
     private String mSelectedCategory = null;
     private String mSelectedAuthor   = null;
-
-    // -------------------------------------------------------------------------
-    // Ciclo de vida
-    // -------------------------------------------------------------------------
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -144,14 +143,12 @@ public class ShaderStoreActivity extends Activity {
         mModuleManager = new ModuleManager(this);
         setContentView(buildRoot());
 
-        // Intento cargar del cache. Si hay, mostramos al instante.
         if (loadIndexFromCache()) {
             updateCount();
             rebuildCategoryChips();
             rebuildAuthorChips();
             renderCatalog();
         } else {
-            // Sin cache: hay que descargar
             fetchIndex(false);
         }
     }
@@ -165,7 +162,18 @@ public class ShaderStoreActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        mUi.removeCallbacks(mSearchRunnable);
         mPool.shutdownNow();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (mInstalling) {
+            Toast.makeText(this, "Espera a que termine la instalación",
+                           Toast.LENGTH_SHORT).show();
+            return;
+        }
+        super.onBackPressed();
     }
 
     private void applyFullscreen() {
@@ -181,10 +189,6 @@ public class ShaderStoreActivity extends Activity {
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
     }
 
-    // -------------------------------------------------------------------------
-    // Cache
-    // -------------------------------------------------------------------------
-
     private SharedPreferences cachePrefs() {
         return getSharedPreferences(CACHE_PREFS, MODE_PRIVATE);
     }
@@ -196,7 +200,6 @@ public class ShaderStoreActivity extends Activity {
             .apply();
     }
 
-    /** Devuelve true si había cache y se parseó correctamente. */
     private boolean loadIndexFromCache() {
         String md = cachePrefs().getString(KEY_INDEX_MD, null);
         if (md == null || md.isEmpty()) return false;
@@ -212,10 +215,13 @@ public class ShaderStoreActivity extends Activity {
     }
 
     // -------------------------------------------------------------------------
-    // Construcción de UI
+    // UI
     // -------------------------------------------------------------------------
 
     private View buildRoot() {
+        // FrameLayout exterior para poder superponer el overlay de instalación.
+        FrameLayout outer = new FrameLayout(this);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Ui.BG_ROOT);
@@ -249,7 +255,7 @@ public class ShaderStoreActivity extends Activity {
         mCatalogContainer = new LinearLayout(this);
         mCatalogContainer.setOrientation(LinearLayout.VERTICAL);
         mCatalogScroll.addView(mCatalogContainer,
-							   new FrameLayout.LayoutParams(MP, WC));
+                               new FrameLayout.LayoutParams(MP, WC));
 
         mLoadingView = buildLoadingView();
         mErrorView   = buildErrorView();
@@ -260,9 +266,78 @@ public class ShaderStoreActivity extends Activity {
         mContent.addView(mErrorView,     new FrameLayout.LayoutParams(MP, MP));
         mContent.addView(mEmptyView,     new FrameLayout.LayoutParams(MP, MP));
 
+        outer.addView(root, new FrameLayout.LayoutParams(MP, MP));
+
+        buildInstallOverlay();
+        outer.addView(mInstallOverlay, new FrameLayout.LayoutParams(MP, MP));
+
         showLoading();
-        return root;
+        return outer;
     }
+
+    // -------------------------------------------------------------------------
+    // Overlay de instalación (bloqueante, uno a la vez)
+    // -------------------------------------------------------------------------
+
+    private void buildInstallOverlay() {
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0xCC000000);
+        overlay.setClickable(true);
+        overlay.setFocusable(true);
+        // Consume cualquier toque para que no llegue a lo de abajo.
+        overlay.setOnTouchListener(new View.OnTouchListener() {
+				@Override public boolean onTouch(View v, MotionEvent e) { return true; }
+			});
+        overlay.setVisibility(View.GONE);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setBackground(Ui.roundRect(Ui.BG_SURFACE, this, 14));
+        int pad = Ui.dp(this, 26);
+        box.setPadding(pad, pad, pad, pad);
+
+        ProgressBar pb = new ProgressBar(this);
+        box.addView(pb, Ui.lp(Ui.dp(this, 48), Ui.dp(this, 48)));
+
+        mTvInstallLabel = Ui.text(this, "Instalando…", 15, Ui.TEXT_PRIMARY, true);
+        mTvInstallLabel.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams lLp = Ui.lp(WC, WC);
+        lLp.topMargin = Ui.dp(this, 14);
+        box.addView(mTvInstallLabel, lLp);
+
+        TextView hint = Ui.text(this, "No cierres esta pantalla",
+                                12, Ui.TEXT_TERTIARY, false);
+        LinearLayout.LayoutParams hLp = Ui.lp(WC, WC);
+        hLp.topMargin = Ui.dp(this, 4);
+        box.addView(hint, hLp);
+
+        FrameLayout.LayoutParams boxLp = new FrameLayout.LayoutParams(WC, WC);
+        boxLp.gravity = Gravity.CENTER;
+        overlay.addView(box, boxLp);
+
+        mInstallOverlay = overlay;
+    }
+
+    private void showInstallOverlay(String name) {
+        if (mTvInstallLabel != null) {
+            mTvInstallLabel.setText("Instalando: " + name);
+        }
+        if (mInstallOverlay != null) {
+            mInstallOverlay.setVisibility(View.VISIBLE);
+            mInstallOverlay.bringToFront();
+        }
+    }
+
+    private void hideInstallOverlay() {
+        if (mInstallOverlay != null) {
+            mInstallOverlay.setVisibility(View.GONE);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Resto de UI (header, search, chips, estados, etc.)
+    // -------------------------------------------------------------------------
 
     private View buildHeader() {
         LinearLayout row = new LinearLayout(this);
@@ -271,8 +346,16 @@ public class ShaderStoreActivity extends Activity {
 
         TextView back = makeIconBtn("\u2715");
         back.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) { finish(); }
-			});
+                @Override public void onClick(View v) {
+                    if (mInstalling) {
+                        Toast.makeText(ShaderStoreActivity.this,
+                                       "Espera a que termine la instalación",
+                                       Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    finish();
+                }
+            });
         row.addView(back, Ui.lp(Ui.dp(this, 44), Ui.dp(this, 44)));
 
         TextView title = Ui.text(this, "Tienda", 24, Ui.TEXT_PRIMARY, true);
@@ -283,7 +366,7 @@ public class ShaderStoreActivity extends Activity {
         mTvCount = Ui.text(this, "—", 13, Ui.ACCENT, true);
         mTvCount.setGravity(Gravity.CENTER);
         mTvCount.setBackground(Ui.roundRectStroke(
-								   Ui.ACCENT_SOFT, Ui.ACCENT_SOFT, this, 20, 0));
+                                   Ui.ACCENT_SOFT, Ui.ACCENT_SOFT, this, 20, 0));
         int hp = Ui.dp(this, 12);
         int vp = Ui.dp(this, 6);
         mTvCount.setPadding(hp, vp, hp, vp);
@@ -292,19 +375,14 @@ public class ShaderStoreActivity extends Activity {
         return row;
     }
 
-    // -------------------------------------------------------------------------
-    // Buscador + botón refresh
-    // -------------------------------------------------------------------------
-
     private View buildSearchRow() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
 
-        // Search box (ocupa el resto)
         FrameLayout searchWrap = new FrameLayout(this);
         searchWrap.setBackground(Ui.roundRectStroke(
-									 Ui.BG_SURFACE, Ui.DIVIDER, this, 12, 1f));
+                                     Ui.BG_SURFACE, Ui.DIVIDER, this, 12, 1f));
 
         LinearLayout inner = new LinearLayout(this);
         inner.setOrientation(LinearLayout.HORIZONTAL);
@@ -327,19 +405,19 @@ public class ShaderStoreActivity extends Activity {
         inner.addView(mSearch, Ui.lp(0, MP, 1f));
 
         mSearch.addTextChangedListener(new TextWatcher() {
-				@Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
-				@Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
-				@Override public void afterTextChanged(Editable s) {
-					mQuery = s.toString().trim().toLowerCase();
-					renderCatalog();
-				}
-			});
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void afterTextChanged(Editable s) {
+                    mQuery = s.toString().trim().toLowerCase();
+                    mUi.removeCallbacks(mSearchRunnable);
+                    mUi.postDelayed(mSearchRunnable, SEARCH_DEBOUNCE_MS);
+                }
+            });
 
         LinearLayout.LayoutParams searchLp = Ui.lp(0, MP, 1f);
         searchLp.rightMargin = Ui.dp(this, 8);
         row.addView(searchWrap, searchLp);
 
-        // Botón refresh
         row.addView(buildRefreshBtn(), Ui.lp(Ui.dp(this, 44), Ui.dp(this, 44)));
 
         return row;
@@ -348,17 +426,17 @@ public class ShaderStoreActivity extends Activity {
     private View buildRefreshBtn() {
         mRefreshBtnWrap = new FrameLayout(this);
         mRefreshBtnWrap.setBackground(Ui.buttonBgStroke(
-										  this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 12, 1f));
+                                          this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 12, 1f));
         mRefreshBtnWrap.setClickable(true);
 
         mRefreshIcon = new TextView(this);
-        mRefreshIcon.setText("\u21BB"); // ↻
+        mRefreshIcon.setText("\u21BB");
         mRefreshIcon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         mRefreshIcon.setTextColor(Ui.TEXT_PRIMARY);
         mRefreshIcon.setGravity(Gravity.CENTER);
         mRefreshIcon.setTypeface(Typeface.DEFAULT_BOLD);
         mRefreshBtnWrap.addView(mRefreshIcon,
-								new FrameLayout.LayoutParams(MP, MP));
+                                new FrameLayout.LayoutParams(MP, MP));
 
         mRefreshSpinner = new ProgressBar(this);
         mRefreshSpinner.setVisibility(View.GONE);
@@ -368,11 +446,11 @@ public class ShaderStoreActivity extends Activity {
         mRefreshBtnWrap.addView(mRefreshSpinner, spLp);
 
         mRefreshBtnWrap.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) {
-					if (mRefreshing) return;
-					fetchIndex(true);
-				}
-			});
+                @Override public void onClick(View v) {
+                    if (mRefreshing || mInstalling) return;
+                    fetchIndex(true);
+                }
+            });
 
         return mRefreshBtnWrap;
     }
@@ -391,10 +469,6 @@ public class ShaderStoreActivity extends Activity {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Filas de chips
-    // -------------------------------------------------------------------------
-
     private View buildCategoryChipsRow() {
         LinearLayout holder = new LinearLayout(this);
         holder.setOrientation(LinearLayout.HORIZONTAL);
@@ -406,11 +480,10 @@ public class ShaderStoreActivity extends Activity {
         mCategoryChips = new LinearLayout(this);
         mCategoryChips.setOrientation(LinearLayout.HORIZONTAL);
         mCategoryChipsScroll.addView(mCategoryChips,
-									 new FrameLayout.LayoutParams(WC, WC));
+                                     new FrameLayout.LayoutParams(WC, WC));
 
         LinearLayout.LayoutParams scrollLp = Ui.lp(0, Ui.dp(this, 34), 1f);
         holder.addView(mCategoryChipsScroll, scrollLp);
-
         return holder;
     }
 
@@ -425,11 +498,10 @@ public class ShaderStoreActivity extends Activity {
         mAuthorChips = new LinearLayout(this);
         mAuthorChips.setOrientation(LinearLayout.HORIZONTAL);
         mAuthorChipsScroll.addView(mAuthorChips,
-								   new FrameLayout.LayoutParams(WC, WC));
+                                   new FrameLayout.LayoutParams(WC, WC));
 
         LinearLayout.LayoutParams scrollLp = Ui.lp(0, Ui.dp(this, 34), 1f);
         holder.addView(mAuthorChipsScroll, scrollLp);
-
         return holder;
     }
 
@@ -452,13 +524,13 @@ public class ShaderStoreActivity extends Activity {
         } else {
             chip.setTextColor(Ui.TEXT_SECOND);
             chip.setBackground(Ui.roundRectStroke(
-								   Ui.BG_SURFACE, Ui.DIVIDER, this, 20, 1f));
+                                   Ui.BG_SURFACE, Ui.DIVIDER, this, 20, 1f));
         }
 
         chip.setClickable(true);
         chip.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) { onSelect.run(); }
-			});
+                @Override public void onClick(View v) { onSelect.run(); }
+            });
 
         LinearLayout.LayoutParams lp = Ui.lp(WC, WC);
         lp.rightMargin = Ui.dp(this, 6);
@@ -477,26 +549,26 @@ public class ShaderStoreActivity extends Activity {
         if (!found) mSelectedCategory = null;
 
         mCategoryChips.addView(makeFilterChip(
-								   "Todas", mSelectedCategory == null,
-								   new Runnable() {
-									   @Override public void run() {
-										   mSelectedCategory = null;
-										   rebuildCategoryChips();
-										   renderCatalog();
-									   }
-								   }));
+                                   "Todas", mSelectedCategory == null,
+                                   new Runnable() {
+                                       @Override public void run() {
+                                           mSelectedCategory = null;
+                                           rebuildCategoryChips();
+                                           renderCatalog();
+                                       }
+                                   }));
 
         for (final Category c : mCategories) {
             boolean sel = c.title.equals(mSelectedCategory);
             mCategoryChips.addView(makeFilterChip(
-									   c.title, sel,
-									   new Runnable() {
-										   @Override public void run() {
-											   mSelectedCategory = c.title;
-											   rebuildCategoryChips();
-											   renderCatalog();
-										   }
-									   }));
+                                       c.title, sel,
+                                       new Runnable() {
+                                           @Override public void run() {
+                                               mSelectedCategory = c.title;
+                                               rebuildCategoryChips();
+                                               renderCatalog();
+                                           }
+                                       }));
         }
     }
 
@@ -518,32 +590,28 @@ public class ShaderStoreActivity extends Activity {
         }
 
         mAuthorChips.addView(makeFilterChip(
-								 "Todos", mSelectedAuthor == null,
-								 new Runnable() {
-									 @Override public void run() {
-										 mSelectedAuthor = null;
-										 rebuildAuthorChips();
-										 renderCatalog();
-									 }
-								 }));
+                                 "Todos", mSelectedAuthor == null,
+                                 new Runnable() {
+                                     @Override public void run() {
+                                         mSelectedAuthor = null;
+                                         rebuildAuthorChips();
+                                         renderCatalog();
+                                     }
+                                 }));
 
         for (final String a : authors) {
             boolean sel = a.equals(mSelectedAuthor);
             mAuthorChips.addView(makeFilterChip(
-									 a, sel,
-									 new Runnable() {
-										 @Override public void run() {
-											 mSelectedAuthor = a;
-											 rebuildAuthorChips();
-											 renderCatalog();
-										 }
-									 }));
+                                     a, sel,
+                                     new Runnable() {
+                                         @Override public void run() {
+                                             mSelectedAuthor = a;
+                                             rebuildAuthorChips();
+                                             renderCatalog();
+                                         }
+                                     }));
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Vistas de estado
-    // -------------------------------------------------------------------------
 
     private View buildLoadingView() {
         LinearLayout col = new LinearLayout(this);
@@ -570,7 +638,7 @@ public class ShaderStoreActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER);
         card.setBackground(Ui.roundRectStroke(
-							   Ui.BG_SURFACE, Ui.DANGER, this, 14, 1f));
+                               Ui.BG_SURFACE, Ui.DANGER, this, 14, 1f));
         int p = Ui.dp(this, 24);
         card.setPadding(p, p, p, p);
 
@@ -597,8 +665,8 @@ public class ShaderStoreActivity extends Activity {
         retry.setBackground(Ui.buttonBgSolid(this, Ui.ACCENT, Ui.ACCENT_DIM, 10));
         retry.setClickable(true);
         retry.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) { fetchIndex(false); }
-			});
+                @Override public void onClick(View v) { fetchIndex(false); }
+            });
         card.addView(retry, Ui.lp(Ui.dp(this, 130), Ui.dp(this, 40)));
 
         return col;
@@ -657,20 +725,11 @@ public class ShaderStoreActivity extends Activity {
         tv.setGravity(Gravity.CENTER);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
         tv.setBackground(Ui.buttonBgStroke(
-							 this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 22, 1f));
+                             this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 22, 1f));
         tv.setClickable(true);
         return tv;
     }
 
-    // -------------------------------------------------------------------------
-    // Descarga del índice
-    // -------------------------------------------------------------------------
-
-    /**
-     * @param userInitiated true si vino del botón refresh: no muestra loading
-     *                      full-screen y usa spinner del botón.
-     *                      false si es la carga inicial sin cache.
-     */
     private void fetchIndex(final boolean userInitiated) {
         final boolean hasCache = !mCategories.isEmpty();
 
@@ -681,52 +740,51 @@ public class ShaderStoreActivity extends Activity {
         }
 
         mPool.execute(new Runnable() {
-				@Override public void run() {
-					try {
-						final String md = downloadString(INDEX_URL);
-						final List<Category> cats = parseMarkdown(md);
+                @Override public void run() {
+                    try {
+                        final String md = downloadString(INDEX_URL);
+                        final List<Category> cats = parseMarkdown(md);
 
-						if (cats.isEmpty()) {
-							throw new Exception("El catálogo llegó vacío");
-						}
+                        if (cats.isEmpty()) {
+                            throw new Exception("El catálogo llegó vacío");
+                        }
 
-						// Solo guardamos si el parseo salió bien
-						saveIndexToCache(md);
+                        saveIndexToCache(md);
 
-						mUi.post(new Runnable() {
-								@Override public void run() {
-									mCategories = cats;
-									updateCount();
-									rebuildCategoryChips();
-									rebuildAuthorChips();
-									renderCatalog();
-									setRefreshing(false);
-									if (userInitiated) {
-										Toast.makeText(ShaderStoreActivity.this,
-													   "Catálogo actualizado", Toast.LENGTH_SHORT).show();
-									}
-								}
-							});
-					} catch (final Exception e) {
-						Log.w(TAG, "fetchIndex falló: " + e.getMessage());
-						mUi.post(new Runnable() {
-								@Override public void run() {
-									setRefreshing(false);
-									if (hasCache) {
-										// Mantenemos el cache intacto, solo avisamos
-										Toast.makeText(ShaderStoreActivity.this,
-													   "No se pudo actualizar: " + e.getMessage(),
-													   Toast.LENGTH_LONG).show();
-									} else {
-										showError(e.getMessage() == null
-												  ? "Error desconocido"
-												  : e.getMessage());
-									}
-								}
-							});
-					}
-				}
-			});
+                        mUi.post(new Runnable() {
+                                @Override public void run() {
+                                    mCategories = cats;
+                                    updateCount();
+                                    rebuildCategoryChips();
+                                    rebuildAuthorChips();
+                                    renderCatalog();
+                                    setRefreshing(false);
+                                    if (userInitiated) {
+                                        Toast.makeText(ShaderStoreActivity.this,
+                                                       "Catálogo actualizado",
+                                                       Toast.LENGTH_SHORT).show();
+                                    }
+                                }
+                            });
+                    } catch (final Exception e) {
+                        Log.w(TAG, "fetchIndex falló: " + e.getMessage());
+                        mUi.post(new Runnable() {
+                                @Override public void run() {
+                                    setRefreshing(false);
+                                    if (hasCache) {
+                                        Toast.makeText(ShaderStoreActivity.this,
+                                                       "No se pudo actualizar: " + e.getMessage(),
+                                                       Toast.LENGTH_LONG).show();
+                                    } else {
+                                        showError(e.getMessage() == null
+                                                  ? "Error desconocido"
+                                                  : e.getMessage());
+                                    }
+                                }
+                            });
+                    }
+                }
+            });
     }
 
     private void updateCount() {
@@ -734,10 +792,6 @@ public class ShaderStoreActivity extends Activity {
         for (Category c : mCategories) total += c.entries.size();
         mTvCount.setText(String.valueOf(total));
     }
-
-    // -------------------------------------------------------------------------
-    // Render + filtros
-    // -------------------------------------------------------------------------
 
     private void renderCatalog() {
         if (mCatalogContainer == null) return;
@@ -781,7 +835,7 @@ public class ShaderStoreActivity extends Activity {
             if (e.name != null && e.name.toLowerCase().contains(mQuery)) hit = true;
             if (!hit && e.author != null && e.author.toLowerCase().contains(mQuery)) hit = true;
             if (!hit && e.description != null
-				&& e.description.toLowerCase().contains(mQuery)) hit = true;
+                && e.description.toLowerCase().contains(mQuery)) hit = true;
             if (!hit) return false;
         }
         return true;
@@ -839,10 +893,10 @@ public class ShaderStoreActivity extends Activity {
         thumbWrap.addView(iv, new FrameLayout.LayoutParams(MP, MP));
 
         final TextView initial = Ui.text(this,
-										 (e.name != null && !e.name.isEmpty())
-										 ? e.name.substring(0, 1).toUpperCase()
-										 : "?",
-										 24, 0x55FFFFFF, true);
+                                         (e.name != null && !e.name.isEmpty())
+                                         ? e.name.substring(0, 1).toUpperCase()
+                                         : "?",
+                                         24, 0x55FFFFFF, true);
         initial.setGravity(Gravity.CENTER);
         thumbWrap.addView(initial, new FrameLayout.LayoutParams(MP, MP));
 
@@ -928,7 +982,7 @@ public class ShaderStoreActivity extends Activity {
             btn.setText("Instalado");
             btn.setTextColor(Ui.TEXT_SECOND);
             btn.setBackground(Ui.roundRectStroke(
-								  Ui.BG_SURFACE, Ui.DIVIDER, this, 10, 1f));
+                                  Ui.BG_SURFACE, Ui.DIVIDER, this, 10, 1f));
             btn.setEnabled(false);
             btn.setPadding(hp, vp, hp, vp);
         } else {
@@ -937,8 +991,8 @@ public class ShaderStoreActivity extends Activity {
             btn.setBackground(Ui.buttonBgSolid(this, Ui.ACCENT, Ui.ACCENT_DIM, 10));
             btn.setPadding(hp, vp, hp, vp);
             btn.setOnClickListener(new View.OnClickListener() {
-					@Override public void onClick(View v) { installShader(entry, btn); }
-				});
+                    @Override public void onClick(View v) { installShader(entry, btn); }
+                });
         }
 
         LinearLayout wrap = new LinearLayout(this);
@@ -948,81 +1002,103 @@ public class ShaderStoreActivity extends Activity {
     }
 
     // -------------------------------------------------------------------------
-    // Descarga / instalación de shaders
+    // Instalación: uno a la vez, con overlay bloqueante
     // -------------------------------------------------------------------------
 
     private void installShader(final ShaderEntry entry, final TextView btn) {
+        if (mInstalling) {
+            Toast.makeText(this, "Ya hay una instalación en curso",
+                           Toast.LENGTH_SHORT).show();
+            return;
+        }
+        mInstalling = true;
+
+        // Feedback inmediato + bloqueo de la UI
+        showInstallOverlay(entry.name);
+
+        // Cambiamos visualmente el botón aunque todavía no esté instalado
+        // (quedará bloqueado tras el overlay, pero da feedback).
+        btn.setText("Instalando…");
         btn.setEnabled(false);
-        btn.setText("Descargando…");
-        btn.setBackground(Ui.roundRectStroke(
-							  Ui.BG_SURFACE, Ui.DIVIDER, this, 10, 1f));
 
         mPool.execute(new Runnable() {
-				@Override public void run() {
-					try {
-						final String json = downloadString(entry.downloadUrl);
-						mUi.post(new Runnable() {
-								@Override public void run() {
-									try {
-										mModuleManager.installFromJson(json);
-										Intent res = new Intent();
-										res.putExtra(RESULT_EXTRA_NAME, entry.name);
-										setResult(RESULT_OK, res);
-										Toast.makeText(ShaderStoreActivity.this,
-													   entry.name + " instalado", Toast.LENGTH_SHORT).show();
-										renderCatalog();
-									} catch (Exception ex) {
-										btn.setEnabled(true);
-										btn.setText("Instalar");
-										btn.setBackground(Ui.buttonBgSolid(
-															  ShaderStoreActivity.this,
-															  Ui.ACCENT, Ui.ACCENT_DIM, 10));
-										Toast.makeText(ShaderStoreActivity.this,
-													   "Error: " + ex.getMessage(),
-													   Toast.LENGTH_LONG).show();
-									}
-								}
-							});
-					} catch (final Exception e) {
-						mUi.post(new Runnable() {
-								@Override public void run() {
-									btn.setEnabled(true);
-									btn.setText("Instalar");
-									btn.setBackground(Ui.buttonBgSolid(
+                @Override public void run() {
+                    try {
+                        final String json = downloadString(entry.downloadUrl);
+
+                        // Parseo + inserción en background
+                        mModuleManager.installFromJson(json);
+
+                        mUi.post(new Runnable() {
+                                @Override public void run() {
+                                    // Ocultamos overlay → UI liberada
+                                    hideInstallOverlay();
+                                    mInstalling = false;
+
+                                    // Actualizamos SÓLO el botón de esta entrada.
+                                    // NO llamamos renderCatalog() (era lo que
+                                    // congelaba con catálogos grandes).
+                                    btn.setText("Instalado");
+                                    btn.setEnabled(false);
+                                    btn.setTextColor(Ui.TEXT_SECOND);
+                                    btn.setBackground(Ui.roundRectStroke(
+														  Ui.BG_SURFACE, Ui.DIVIDER,
+														  ShaderStoreActivity.this, 10, 1f));
+
+                                    Intent res = new Intent();
+                                    res.putExtra(RESULT_EXTRA_NAME, entry.name);
+                                    setResult(RESULT_OK, res);
+
+                                    Toast.makeText(ShaderStoreActivity.this,
+                                                   entry.name + " instalado",
+                                                   Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                    } catch (final Exception e) {
+                        mUi.post(new Runnable() {
+                                @Override public void run() {
+                                    hideInstallOverlay();
+                                    mInstalling = false;
+
+                                    btn.setText("Instalar");
+                                    btn.setEnabled(true);
+                                    btn.setTextColor(0xFFFFFFFF);
+                                    btn.setBackground(Ui.buttonBgSolid(
 														  ShaderStoreActivity.this,
 														  Ui.ACCENT, Ui.ACCENT_DIM, 10));
-									Toast.makeText(ShaderStoreActivity.this,
-												   "Descarga fallida: " + e.getMessage(),
-												   Toast.LENGTH_LONG).show();
-								}
-							});
-					}
-				}
-			});
+
+                                    Toast.makeText(ShaderStoreActivity.this,
+                                                   "Error: " + e.getMessage(),
+                                                   Toast.LENGTH_LONG).show();
+                                }
+                            });
+                    }
+                }
+            });
     }
 
     private void loadThumbnail(final String url, final ImageView iv,
                                final TextView placeholder) {
         mPool.execute(new Runnable() {
-				@Override public void run() {
-					try {
-						HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-						c.setConnectTimeout(5000);
-						c.setReadTimeout(8000);
-						c.connect();
-						final Bitmap bmp = BitmapFactory.decodeStream(c.getInputStream());
-						c.disconnect();
-						if (bmp != null) {
-							mUi.post(new Runnable() {
-									@Override public void run() {
-										iv.setImageBitmap(bmp);
-										placeholder.setVisibility(View.GONE);
-									}
-								});
-						}
-					} catch (Exception ignored) {}
-				}
-			});
+                @Override public void run() {
+                    try {
+                        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                        c.setConnectTimeout(5000);
+                        c.setReadTimeout(8000);
+                        c.connect();
+                        final Bitmap bmp = BitmapFactory.decodeStream(c.getInputStream());
+                        c.disconnect();
+                        if (bmp != null) {
+                            mUi.post(new Runnable() {
+                                    @Override public void run() {
+                                        iv.setImageBitmap(bmp);
+                                        placeholder.setVisibility(View.GONE);
+                                    }
+                                });
+                        }
+                    } catch (Exception ignored) {}
+                }
+            });
     }
 
     private String downloadString(String urlStr) throws Exception {
@@ -1045,10 +1121,6 @@ public class ShaderStoreActivity extends Activity {
         conn.disconnect();
         return sb.toString();
     }
-
-    // -------------------------------------------------------------------------
-    // Parser
-    // -------------------------------------------------------------------------
 
     private List<Category> parseMarkdown(String md) {
         List<Category> categories = new ArrayList<Category>();
@@ -1083,7 +1155,7 @@ public class ShaderStoreActivity extends Activity {
                 } else if (line.startsWith("- **Imagen:**")) {
                     currentEntry.imageUrl = extractField(line, "Imagen");
                 } else if (line.startsWith("- **Descripción:**")
-						   || line.startsWith("- **Descripcion:**")) {
+                           || line.startsWith("- **Descripcion:**")) {
                     currentEntry.description = extractField(line, "Descripc?i[oó]n");
                 }
             }

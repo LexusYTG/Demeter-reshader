@@ -36,14 +36,22 @@ public class Module {
     private final String mName;
     private final String mAuthor;
     private final String mVersion;
-    private final Type mType;
+    private final Type   mType;
     private final String mVertexShader;
     private final String mFragmentShader;
-    private final Map<String, Float>    mParams;     
-    private final Map<String, ParamDef> mParamDefs;  
+    private final Map<String, Float>    mParams;
+    private final Map<String, Module.ParamDef> mParamDefs;
     private boolean mEnabled;
     private ShaderFilter mShaderFilter;
     private String mCompilationError;
+
+    /**
+     * Caché del JSON serializado de este módulo. Se invalida (se pone a null)
+     * cuando cambia cualquier campo que forme parte del JSON (enabled o params).
+     * Los shaders, nombre, autor, versión y paramDefs son inmutables y por tanto
+     * no invalidan la caché.
+     */
+    private volatile String mCachedJson;
 
     public Module(String name, String author, String version, Type type,
                   String vertexShader, String fragmentShader,
@@ -58,6 +66,7 @@ public class Module {
         mParamDefs      = paramDefs != null ? paramDefs : new HashMap<String, ParamDef>();
         mEnabled        = false;
         mCompilationError = null;
+        mCachedJson     = null;
     }
 
     public String getName()           { return mName; }
@@ -67,15 +76,28 @@ public class Module {
     public String getVertexShader()   { return mVertexShader; }
     public String getFragmentShader() { return mFragmentShader; }
     public Map<String, Float>    getParams()    { return mParams; }
-    public Map<String, ParamDef> getParamDefs() { return mParamDefs; }
+    public Map<String, Module.ParamDef> getParamDefs() { return mParamDefs; }
     public boolean isEnabled()        { return mEnabled; }
-    public void setEnabled(boolean enabled) { mEnabled = enabled; }
+
+    public void setEnabled(boolean enabled) {
+        if (mEnabled == enabled) return;
+        mEnabled = enabled;
+        mCachedJson = null;    // invalida caché
+    }
 
     public void setParamValue(String uniformName, float value) {
-        if (mParamDefs.containsKey(uniformName)) {
-            mParams.put(uniformName, value);
-        }
+        if (!mParamDefs.containsKey(uniformName)) return;
+        Float old = mParams.get(uniformName);
+        // Evita invalidar la caché si el valor no cambió realmente
+        // (importante: un SeekBar puede llamar 60 veces/seg con el mismo valor).
+        if (old != null && Math.abs(old - value) < 0.0001f) return;
+        mParams.put(uniformName, value);
+        mCachedJson = null;
     }
+
+    /** Acceso directo para ModuleManager. */
+    public String getCachedJson()             { return mCachedJson; }
+    public void   setCachedJson(String json)  { mCachedJson = json; }
 
     public ShaderFilter getShaderFilter() {
         if (mShaderFilter == null && mVertexShader != null && mFragmentShader != null) {

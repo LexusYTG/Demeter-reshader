@@ -121,7 +121,8 @@ public class MainActivity extends Activity {
     };
 
     private final Runnable mPreviewLoop = new Runnable() {
-        @Override public void run() {
+        @Override
+        public void run() {
             if (!mPreviewLoopRunning) return;
             if (mPreviewGlReady && mPreviewRenderer != null) {
                 List<Module> previewChain = mModuleManager.getEnabledChain();
@@ -190,11 +191,15 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        mModuleManager.reload();
+        // NOTA: ya no hacemos reload() aquí. Antes, cada vez que la app
+        // volvía a primer plano (o volvías de cualquier activity), se
+        // re-parseaba TODO el JSON de SharedPreferences (con shaders
+        // grandes), provocando lag. Ahora sólo recargamos cuando volvemos
+        // de Filters/Store (ver onActivityResult).
+
         updateStatusCard();
         rebuildParamsPanel();
 
-        // Si el servicio ya está vivo, fuerza la reemisión del estado FPS.
         if (mState == CaptureState.PROJECTING) {
             boolean fps = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
                 .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
@@ -998,6 +1003,7 @@ public class MainActivity extends Activity {
                 if (resultCode == RESULT_OK) {
                     String installedName = data != null
                         ? data.getStringExtra(ShaderStoreActivity.RESULT_EXTRA_NAME) : null;
+                    // Reload sólo cuando volvemos de la tienda
                     mModuleManager.reload();
                     Toast.makeText(this,
                                    installedName != null ? "Shader instalado: " + installedName
@@ -1008,7 +1014,7 @@ public class MainActivity extends Activity {
                 break;
             case REQ_FILTERS:
                 boolean fpsEnabled = getSharedPreferences(
-					FiltersActivity.PREFS_NAME, MODE_PRIVATE)
+                    FiltersActivity.PREFS_NAME, MODE_PRIVATE)
                     .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
                 Log.d(TAG, "onActivityResult REQ_FILTERS: FPS pref=" + fpsEnabled
                       + " mState=" + mState);
@@ -1018,6 +1024,8 @@ public class MainActivity extends Activity {
                     fpsBroadcast.putExtra(CaptureService.EXTRA_FPS_ENABLED, fpsEnabled);
                     sendBroadcast(fpsBroadcast);
                 }
+                // Reload sólo cuando volvemos de Filters
+                mModuleManager.reload();
                 refreshPreviewForActiveModuleChange();
                 updateStatusCard();
                 break;

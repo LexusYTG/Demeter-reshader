@@ -15,6 +15,9 @@ package com.Lexus2025.demeter;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Looper;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -28,6 +31,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ModuleManager {
 
@@ -37,20 +41,50 @@ public class ModuleManager {
     private static final String KEY_ACTIVE_FRAMEGEN_MODULE = "active_framegen_module";
     private static final String KEY_CHAIN_ORDER = "chain_order";
 
+    /** Agrupa ráfagas de cambios (sliders, toggles) en una sola escritura. */
+    private static final long SAVE_DEBOUNCE_MS = 400L;
+
     private final Context mContext;
-    private final List<Module> mModules = new ArrayList<>();
-    private Module mActiveModule = null;
-    private Module mActiveFrameGenModule = null;
-    private List<String> mChainOrder = new ArrayList<>();
+
+    // CopyOnWriteArrayList permite iterar desde el hilo de guardado sin
+    // ConcurrentModificationException cuando la UI agrega/borra módulos.
+    private final List<Module> mModules = new CopyOnWriteArrayList<Module>();
+    private volatile Module mActiveModule = null;
+    private volatile Module mActiveFrameGenModule = null;
+    private final List<String> mChainOrder = new CopyOnWriteArrayList<String>();
+
+    // Hilo dedicado para el guardado. Mantiene la UI libre incluso en el
+    // primer guardado que serializa todos los módulos que aún no están
+    // cacheados.
+    private final HandlerThread mSaveThread;
+    private final Handler       mSaveHandler;
+    private final Runnable      mSaveRunnable = new Runnable() {
+        @Override public void run() { saveNow(); }
+    };
+
+    // Handler de UI usado sólo para el reload() desde el hilo principal.
+    private final Handler mUiHandler = new Handler(Looper.getMainLooper());
 
     public ModuleManager(Context context) {
         mContext = context.getApplicationContext();
+        mSaveThread = new HandlerThread("DemeterSave");
+        mSaveThread.start();
+        mSaveHandler = new Handler(mSaveThread.getLooper());
         load();
     }
 
+    /** Libera el hilo de guardado. Llamar desde onDestroy de la Activity/Service. */
+    public void shutdown() {
+        if (mSaveThread != null) {
+            mSaveHandler.removeCallbacks(mSaveRunnable);
+            mSaveThread.quitSafely();
+        }
+    }
+
     public List<Module> getAll() { return mModules; }
+
     public List<Module> getByType(Module.Type type) {
-        List<Module> result = new ArrayList<>();
+        List<Module> result = new ArrayList<Module>();
         for (Module m : mModules) {
             if (m.getType() == type) result.add(m);
         }
@@ -61,18 +95,18 @@ public class ModuleManager {
 
     public void setActiveModule(Module module) {
         mActiveModule = module;
-        save();
+        scheduleSave();
     }
 
     public Module getActiveFrameGenModule() { return mActiveFrameGenModule; }
 
     public void setActiveFrameGenModule(Module module) {
         mActiveFrameGenModule = module;
-        save();
+        scheduleSave();
     }
 
     public List<Module> getEnabledChain() {
-        List<Module> result = new ArrayList<>();
+        List<Module> result = new ArrayList<Module>();
         for (String name : mChainOrder) {
             Module m = getModuleByName(name);
             if (m != null && m.isEnabled() && m.getType() == Module.Type.MODIFIER) {
@@ -81,7 +115,7 @@ public class ModuleManager {
         }
         for (Module m : mModules) {
             if (m.getType() == Module.Type.MODIFIER && m.isEnabled()
-				&& !containsName(result, m.getName())) {
+                && !containsName(result, m.getName())) {
                 result.add(m);
             }
         }
@@ -89,12 +123,13 @@ public class ModuleManager {
     }
 
     public List<String> getChainOrder() {
-        return new ArrayList<>(mChainOrder);
+        return new ArrayList<String>(mChainOrder);
     }
 
     public void setChainOrder(List<String> names) {
-        mChainOrder = (names != null) ? new ArrayList<>(names) : new ArrayList<String>();
-        save();
+        mChainOrder.clear();
+        if (names != null) mChainOrder.addAll(names);
+        scheduleSave();
     }
 
     private boolean containsName(List<Module> list, String name) {
@@ -151,7 +186,7 @@ public class ModuleManager {
             type = Module.Type.MODIFIER;
         }
 
-        Map<String, Module.ParamDef> paramDefs = new HashMap<>();
+        Map<String, Module.ParamDef> paramDefs = new HashMap<String, Module.ParamDef>();
         if (paramDefsObj != null) {
             Iterator<String> keys = paramDefsObj.keys();
             while (keys.hasNext()) {
@@ -163,11 +198,11 @@ public class ModuleManager {
                     float max    = (float) defObj.optDouble("max", 1.0);
                     float def    = (float) defObj.optDouble("default", min);
                     paramDefs.put(key, new Module.ParamDef(label, min, max, def));
-                } catch (JSONException e) {  }
+                } catch (JSONException e) { }
             }
         }
 
-        Map<String, Float> params = new HashMap<>();
+        Map<String, Float> params = new HashMap<String, Float>();
         for (Map.Entry<String, Module.ParamDef> e : paramDefs.entrySet()) {
             params.put(e.getKey(), e.getValue().defaultValue);
         }
@@ -177,7 +212,7 @@ public class ModuleManager {
                 String key = keys.next();
                 try {
                     params.put(key, (float) paramsObj.getDouble(key));
-                } catch (JSONException e) {  }
+                } catch (JSONException e) { }
             }
         }
 
@@ -186,10 +221,12 @@ public class ModuleManager {
         }
 
         Module module = new Module(name, author, version, type,
-								   vertexShader, fragmentShader, params, paramDefs);
+                                   vertexShader, fragmentShader, params, paramDefs);
         mModules.add(module);
-        
-        save();
+        // Pre-cache del JSON original para no re-serializar este módulo
+        // en el primer saveNow() que siga.
+        module.setCachedJson(obj.toString());
+        scheduleSave();
     }
 
     public void uninstall(Module module) {
@@ -198,7 +235,7 @@ public class ModuleManager {
         if (mActiveFrameGenModule == module) mActiveFrameGenModule = null;
         mModules.remove(module);
         mChainOrder.remove(module.getName());
-        save();
+        scheduleSave();
     }
 
     public void setEnabled(Module module, boolean enabled) {
@@ -208,12 +245,12 @@ public class ModuleManager {
             if (mActiveModule == module) mActiveModule = null;
             if (mActiveFrameGenModule == module) mActiveFrameGenModule = null;
         }
-        save();
+        scheduleSave();
     }
 
     public void setParamValue(Module module, String uniformName, float value) {
         module.setParamValue(uniformName, value);
-        save();
+        scheduleSave();
     }
 
     public Module getModuleByName(String name) {
@@ -223,63 +260,108 @@ public class ModuleManager {
         return null;
     }
 
-    private void save() {
+    // -------------------------------------------------------------------------
+    // Guardado diferido (debounced) en hilo dedicado
+    // -------------------------------------------------------------------------
+
+    /**
+     * Programa el guardado en el hilo de guardado. Puede llamarse desde
+     * cualquier hilo. Agrupa ráfagas de cambios en una sola escritura.
+     */
+    private void scheduleSave() {
+        mSaveHandler.removeCallbacks(mSaveRunnable);
+        mSaveHandler.postDelayed(mSaveRunnable, SAVE_DEBOUNCE_MS);
+    }
+
+    /**
+     * Ejecuta el guardado. Corre SIEMPRE en el hilo de guardado (nunca en UI).
+     * Gracias al cache por módulo, sólo se re-serializan los que cambiaron;
+     * el resto se concatena directamente desde su JSON cacheado.
+     */
+    private void saveNow() {
         try {
-            JSONArray arr = new JSONArray();
+            StringBuilder arrBuilder = new StringBuilder();
+            arrBuilder.append('[');
+            boolean first = true;
+
             JSONObject builtinStates = new JSONObject();
 
             for (Module m : mModules) {
                 if (BUILTIN_NAMES.contains(m.getName())) {
-                    
                     builtinStates.put(m.getName(), m.isEnabled());
                     continue;
                 }
-
-                JSONObject obj = new JSONObject();
-                obj.put("name", m.getName());
-                obj.put("author", m.getAuthor());
-                obj.put("version", m.getVersion());
-                obj.put("type", m.getType().name());
-                obj.put("vertexShader", m.getVertexShader());
-                obj.put("fragmentShader", m.getFragmentShader());
-                obj.put("enabled", m.isEnabled());
-
-                JSONObject params = new JSONObject();
-                for (Map.Entry<String, Float> entry : m.getParams().entrySet()) {
-                    params.put(entry.getKey(), entry.getValue());
+                String cached = m.getCachedJson();
+                if (cached == null) {
+                    cached = serializeModule(m);
+                    m.setCachedJson(cached);
                 }
-                obj.put("params", params);
-
-                JSONObject paramDefs = new JSONObject();
-                for (Map.Entry<String, Module.ParamDef> entry : m.getParamDefs().entrySet()) {
-                    Module.ParamDef d = entry.getValue();
-                    JSONObject defObj = new JSONObject();
-                    defObj.put("label",   d.label);
-                    defObj.put("min",     d.min);
-                    defObj.put("max",     d.max);
-                    defObj.put("default", d.defaultValue);
-                    paramDefs.put(entry.getKey(), defObj);
-                }
-                obj.put("paramDefs", paramDefs);
-
-                arr.put(obj);
+                if (!first) arrBuilder.append(',');
+                arrBuilder.append(cached);
+                first = false;
             }
+            arrBuilder.append(']');
+
             JSONArray chainArr = new JSONArray();
             for (String n : mChainOrder) chainArr.put(n);
 
+            Module active   = mActiveModule;
+            Module activeFg = mActiveFrameGenModule;
+
             SharedPreferences.Editor editor = prefs().edit();
-            editor.putString(KEY_MODULES, arr.toString());
+            editor.putString(KEY_MODULES, arrBuilder.toString());
             editor.putString(KEY_CHAIN_ORDER, chainArr.toString());
             editor.putString("builtin_states", builtinStates.toString());
-            if (mActiveModule != null) editor.putString(KEY_ACTIVE_MODULE, mActiveModule.getName());
-            else                       editor.remove(KEY_ACTIVE_MODULE);
-            if (mActiveFrameGenModule != null) editor.putString(KEY_ACTIVE_FRAMEGEN_MODULE, mActiveFrameGenModule.getName());
-            else                                editor.remove(KEY_ACTIVE_FRAMEGEN_MODULE);
-            editor.apply();
-        } catch (JSONException e) {  }
+            if (active != null) {
+                editor.putString(KEY_ACTIVE_MODULE, active.getName());
+            } else {
+                editor.remove(KEY_ACTIVE_MODULE);
+            }
+            if (activeFg != null) {
+                editor.putString(KEY_ACTIVE_FRAMEGEN_MODULE, activeFg.getName());
+            } else {
+                editor.remove(KEY_ACTIVE_FRAMEGEN_MODULE);
+            }
+            editor.apply();   // escritura en disco asíncrona
+        } catch (JSONException ignored) { }
+    }
+
+    /** Serializa un módulo. Se llama sólo si no tiene caché válida. */
+    private String serializeModule(Module m) throws JSONException {
+        JSONObject obj = new JSONObject();
+        obj.put("name", m.getName());
+        obj.put("author", m.getAuthor());
+        obj.put("version", m.getVersion());
+        obj.put("type", m.getType().name());
+        obj.put("vertexShader", m.getVertexShader());
+        obj.put("fragmentShader", m.getFragmentShader());
+        obj.put("enabled", m.isEnabled());
+
+        JSONObject params = new JSONObject();
+        for (Map.Entry<String, Float> entry : m.getParams().entrySet()) {
+            params.put(entry.getKey(), entry.getValue());
+        }
+        obj.put("params", params);
+
+        JSONObject paramDefs = new JSONObject();
+        for (Map.Entry<String, Module.ParamDef> entry : m.getParamDefs().entrySet()) {
+            Module.ParamDef d = entry.getValue();
+            JSONObject defObj = new JSONObject();
+            defObj.put("label",   d.label);
+            defObj.put("min",     d.min);
+            defObj.put("max",     d.max);
+            defObj.put("default", d.defaultValue);
+            paramDefs.put(entry.getKey(), defObj);
+        }
+        obj.put("paramDefs", paramDefs);
+
+        return obj.toString();
     }
 
     public void reload() {
+        // Cancela un save pendiente y espera a que termine el actual para
+        // no sobreescribir lo que vamos a cargar.
+        mSaveHandler.removeCallbacks(mSaveRunnable);
         mModules.clear();
         mActiveModule = null;
         mActiveFrameGenModule = null;
@@ -288,10 +370,9 @@ public class ModuleManager {
     }
 
     private static final java.util.Set<String> BUILTIN_NAMES =
-	new java.util.HashSet<>(java.util.Arrays.asList(
-								"Frame Generation"
-							
-							));
+	new java.util.HashSet<String>(java.util.Arrays.asList(
+									  "Frame Generation"
+								  ));
 
     private void loadBuiltins(JSONObject states) {
         addBuiltin(new Module(
@@ -319,7 +400,6 @@ public class ModuleManager {
 					   new HashMap<String, Float>(),
 					   new HashMap<String, Module.ParamDef>()
 				   ), states);
-        
     }
 
     private void addBuiltin(Module m, JSONObject states) {
@@ -330,7 +410,7 @@ public class ModuleManager {
             if (states.has(m.getName())) {
                 m.setEnabled(states.getBoolean(m.getName()));
             }
-        } catch (JSONException e) {  }
+        } catch (JSONException e) { }
         mModules.add(m);
     }
 
@@ -345,18 +425,18 @@ public class ModuleManager {
             for (int i = 0; i < chainArr.length(); i++) {
                 mChainOrder.add(chainArr.getString(i));
             }
-        } catch (JSONException e) {  }
+        } catch (JSONException e) { }
 
         try {
             JSONArray arr = new JSONArray(json);
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject obj = arr.getJSONObject(i);
                 Module.Type type = Module.Type.valueOf(
-					obj.optString("type", Module.Type.MODIFIER.name()));
+                    obj.optString("type", Module.Type.MODIFIER.name()));
                 String vertexShader = obj.optString("vertexShader");
                 String fragmentShader = obj.optString("fragmentShader");
 
-                Map<String, Float> params = new HashMap<>();
+                Map<String, Float> params = new HashMap<String, Float>();
                 JSONObject paramsObj = obj.optJSONObject("params");
                 if (paramsObj != null) {
                     Iterator<String> keys = paramsObj.keys();
@@ -364,11 +444,11 @@ public class ModuleManager {
                         String key = keys.next();
                         try {
                             params.put(key, (float) paramsObj.getDouble(key));
-                        } catch (JSONException e) {  }
+                        } catch (JSONException e) { }
                     }
                 }
 
-                Map<String, Module.ParamDef> paramDefs = new HashMap<>();
+                Map<String, Module.ParamDef> paramDefs = new HashMap<String, Module.ParamDef>();
                 JSONObject paramDefsObj = obj.optJSONObject("paramDefs");
                 if (paramDefsObj != null) {
                     Iterator<String> defKeys = paramDefsObj.keys();
@@ -381,28 +461,32 @@ public class ModuleManager {
                             float max    = (float) defObj.optDouble("max", 1.0);
                             float def    = (float) defObj.optDouble("default", min);
                             paramDefs.put(key, new Module.ParamDef(label, min, max, def));
-                        } catch (JSONException e) {  }
+                        } catch (JSONException e) { }
                     }
                 }
 
                 Module m = new Module(
-					obj.getString("name"),
-					obj.optString("author", "Desconocido"),
-					obj.optString("version", "1.0"),
-					type,
-					vertexShader,
-					fragmentShader,
-					params,
-					paramDefs
+                    obj.getString("name"),
+                    obj.optString("author", "Desconocido"),
+                    obj.optString("version", "1.0"),
+                    type,
+                    vertexShader,
+                    fragmentShader,
+                    params,
+                    paramDefs
                 );
                 m.setEnabled(obj.optBoolean("enabled", false));
                 mModules.add(m);
+
+                // *** CLAVE ***: cacheamos el JSON que acabamos de leer.
+                // Así el primer saveNow() no re-serializa nada de este módulo.
+                m.setCachedJson(obj.toString());
 
                 if (activeName != null && m.getName().equals(activeName)) mActiveModule = m;
                 if (activeFrameGenName != null && m.getName().equals(activeFrameGenName))
                     mActiveFrameGenModule = m;
             }
-        } catch (JSONException e) {  }
+        } catch (JSONException e) { }
 
         String builtinStatesJson = prefs().getString("builtin_states", "{}");
         JSONObject builtinStates;

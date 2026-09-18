@@ -38,6 +38,12 @@ public class FiltersActivity extends Activity {
 
     private static final int REQ_FPS_POSITION = 201;
 
+    /** Cuántos módulos "disponibles" mostrar por página. */
+    private static final int AVAILABLE_PAGE_SIZE = 20;
+
+    /** Debounce del buscador (ms). */
+    private static final long SEARCH_DEBOUNCE_MS = 120L;
+
     private ModuleManager mModuleManager;
     private LinearLayout  mLlFilters;
     private TextView      mTvCount;
@@ -56,6 +62,13 @@ public class FiltersActivity extends Activity {
     private String      mQuery          = "";
     private String      mSelectedAuthor = null;
     private Module.Type mSelectedType   = null;
+
+    private int mAvailableLimit = AVAILABLE_PAGE_SIZE;
+
+    private final Handler mUiHandler = new Handler(Looper.getMainLooper());
+    private final Runnable mRebuildRunnable = new Runnable() {
+        @Override public void run() { rebuildList(); }
+    };
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -86,6 +99,10 @@ public class FiltersActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        // NOTA: ya NO llamamos mModuleManager.reload() aquí.
+        // FiltersActivity nunca abre la tienda; el Manager ya cargó el
+        // estado en onCreate. El reload() costaba parsear todo el JSON
+        // de SharedPreferences (con shaders grandes) cada vez.
         boolean fps = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .getBoolean(PREF_FPS_OVERLAY, false);
         Log.d(TAG, "onResume: pref=" + fps + " mFpsOverlay=" + mFpsOverlay);
@@ -97,12 +114,6 @@ public class FiltersActivity extends Activity {
             mFpsSwitch.setChecked(mFpsOverlay);
         }
         updateFpsPositionButtonState();
-
-        // Los módulos pueden haber cambiado si volvimos de la tienda
-        mModuleManager.reload();
-        rebuildAuthorChips();
-        rebuildTypeChips();
-        rebuildList();
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -118,11 +129,21 @@ public class FiltersActivity extends Activity {
         }
     }
 
+    @Override protected void onDestroy() {
+        super.onDestroy();
+        mUiHandler.removeCallbacks(mRebuildRunnable);
+    }
+
     @Override public void finish() {
         Intent r = new Intent();
         r.putExtra(EXTRA_RESULT_CHANGED, mChanged);
         setResult(mChanged ? RESULT_OK : RESULT_CANCELED, r);
         super.finish();
+    }
+
+    private void scheduleRebuild() {
+        mUiHandler.removeCallbacks(mRebuildRunnable);
+        mUiHandler.postDelayed(mRebuildRunnable, SEARCH_DEBOUNCE_MS);
     }
 
     private View buildRoot() {
@@ -131,13 +152,9 @@ public class FiltersActivity extends Activity {
         root.setBackgroundColor(Ui.BG_ROOT);
 
         root.addView(buildHeader());
-
         root.addView(buildFpsOverlayRow());
-
         root.addView(buildSearchRow());
-
         root.addView(buildAuthorChipsRow());
-
         root.addView(buildTypeChipsRow());
 
         ScrollView scroll = new ScrollView(this);
@@ -151,10 +168,6 @@ public class FiltersActivity extends Activity {
         root.addView(scroll, Ui.lp(MP, 0, 1f));
         return root;
     }
-
-    // -------------------------------------------------------------------------
-    // Header
-    // -------------------------------------------------------------------------
 
     private View buildHeader() {
         LinearLayout row = new LinearLayout(this);
@@ -182,7 +195,6 @@ public class FiltersActivity extends Activity {
         int vpad = Ui.dp(this, 8);
         mTvCount.setPadding(hpad, vpad, hpad, vpad);
         row.addView(mTvCount);
-
         return row;
     }
 
@@ -198,10 +210,6 @@ public class FiltersActivity extends Activity {
         tv.setClickable(true);
         return tv;
     }
-
-    // -------------------------------------------------------------------------
-    // Buscador
-    // -------------------------------------------------------------------------
 
     private View buildSearchRow() {
         FrameLayout wrap = new FrameLayout(this);
@@ -233,7 +241,8 @@ public class FiltersActivity extends Activity {
                 @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
                 @Override public void afterTextChanged(Editable s) {
                     mQuery = s.toString().trim().toLowerCase();
-                    rebuildList();
+                    mAvailableLimit = AVAILABLE_PAGE_SIZE;
+                    scheduleRebuild();
                 }
             });
 
@@ -243,13 +252,8 @@ public class FiltersActivity extends Activity {
         lp.topMargin    = Ui.dp(this, 4);
         lp.bottomMargin = Ui.dp(this, 6);
         wrap.setLayoutParams(lp);
-
         return wrap;
     }
-
-    // -------------------------------------------------------------------------
-    // Chips de autores
-    // -------------------------------------------------------------------------
 
     private View buildAuthorChipsRow() {
         LinearLayout holder = new LinearLayout(this);
@@ -266,7 +270,6 @@ public class FiltersActivity extends Activity {
 
         LinearLayout.LayoutParams scrollLp = Ui.lp(0, Ui.dp(this, 34), 1f);
         holder.addView(mAuthorChipsScroll, scrollLp);
-
         return holder;
     }
 
@@ -280,38 +283,35 @@ public class FiltersActivity extends Activity {
             if (a != null && !a.isEmpty()) authors.add(a);
         }
 
-        // Validar selección actual
         if (mSelectedAuthor != null && !authors.contains(mSelectedAuthor)) {
             mSelectedAuthor = null;
         }
 
         mAuthorChips.addView(makeFilterChip(
-								 "Todos", mSelectedAuthor == null,
-								 new Runnable() {
-									 @Override public void run() {
-										 mSelectedAuthor = null;
-										 rebuildAuthorChips();
-										 rebuildList();
-									 }
-								 }));
+                                 "Todos", mSelectedAuthor == null,
+                                 new Runnable() {
+                                     @Override public void run() {
+                                         mSelectedAuthor = null;
+                                         mAvailableLimit = AVAILABLE_PAGE_SIZE;
+                                         rebuildAuthorChips();
+                                         rebuildList();
+                                     }
+                                 }));
 
         for (final String a : authors) {
             boolean sel = a.equals(mSelectedAuthor);
             mAuthorChips.addView(makeFilterChip(
-									 a, sel,
-									 new Runnable() {
-										 @Override public void run() {
-											 mSelectedAuthor = a;
-											 rebuildAuthorChips();
-											 rebuildList();
-										 }
-									 }));
+                                     a, sel,
+                                     new Runnable() {
+                                         @Override public void run() {
+                                             mSelectedAuthor = a;
+                                             mAvailableLimit = AVAILABLE_PAGE_SIZE;
+                                             rebuildAuthorChips();
+                                             rebuildList();
+                                         }
+                                     }));
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Chips de tipo
-    // -------------------------------------------------------------------------
 
     private View buildTypeChipsRow() {
         LinearLayout holder = new LinearLayout(this);
@@ -328,7 +328,6 @@ public class FiltersActivity extends Activity {
 
         LinearLayout.LayoutParams scrollLp = Ui.lp(0, Ui.dp(this, 34), 1f);
         holder.addView(mTypeChipsScroll, scrollLp);
-
         return holder;
     }
 
@@ -337,44 +336,48 @@ public class FiltersActivity extends Activity {
         mTypeChips.removeAllViews();
 
         mTypeChips.addView(makeFilterChip(
-							   "Todos", mSelectedType == null,
-							   new Runnable() {
-								   @Override public void run() {
-									   mSelectedType = null;
-									   rebuildTypeChips();
-									   rebuildList();
-								   }
-							   }));
+                               "Todos", mSelectedType == null,
+                               new Runnable() {
+                                   @Override public void run() {
+                                       mSelectedType = null;
+                                       mAvailableLimit = AVAILABLE_PAGE_SIZE;
+                                       rebuildTypeChips();
+                                       rebuildList();
+                                   }
+                               }));
 
         mTypeChips.addView(makeFilterChip(
-							   "MOD", mSelectedType == Module.Type.MODIFIER,
-							   new Runnable() {
-								   @Override public void run() {
-									   mSelectedType = Module.Type.MODIFIER;
-									   rebuildTypeChips();
-									   rebuildList();
-								   }
-							   }));
+                               "MOD", mSelectedType == Module.Type.MODIFIER,
+                               new Runnable() {
+                                   @Override public void run() {
+                                       mSelectedType = Module.Type.MODIFIER;
+                                       mAvailableLimit = AVAILABLE_PAGE_SIZE;
+                                       rebuildTypeChips();
+                                       rebuildList();
+                                   }
+                               }));
 
         mTypeChips.addView(makeFilterChip(
-							   "RENDERER", mSelectedType == Module.Type.RENDERER,
-							   new Runnable() {
-								   @Override public void run() {
-									   mSelectedType = Module.Type.RENDERER;
-									   rebuildTypeChips();
-									   rebuildList();
-								   }
-							   }));
+                               "RENDERER", mSelectedType == Module.Type.RENDERER,
+                               new Runnable() {
+                                   @Override public void run() {
+                                       mSelectedType = Module.Type.RENDERER;
+                                       mAvailableLimit = AVAILABLE_PAGE_SIZE;
+                                       rebuildTypeChips();
+                                       rebuildList();
+                                   }
+                               }));
 
         mTypeChips.addView(makeFilterChip(
-							   "FRAMEGEN", mSelectedType == Module.Type.FRAMEGEN,
-							   new Runnable() {
-								   @Override public void run() {
-									   mSelectedType = Module.Type.FRAMEGEN;
-									   rebuildTypeChips();
-									   rebuildList();
-								   }
-							   }));
+                               "FRAMEGEN", mSelectedType == Module.Type.FRAMEGEN,
+                               new Runnable() {
+                                   @Override public void run() {
+                                       mSelectedType = Module.Type.FRAMEGEN;
+                                       mAvailableLimit = AVAILABLE_PAGE_SIZE;
+                                       rebuildTypeChips();
+                                       rebuildList();
+                                   }
+                               }));
     }
 
     private TextView makeFilterChip(String label, boolean selected,
@@ -409,10 +412,6 @@ public class FiltersActivity extends Activity {
         chip.setLayoutParams(lp);
         return chip;
     }
-
-    // -------------------------------------------------------------------------
-    // Lista con filtros aplicados
-    // -------------------------------------------------------------------------
 
     private boolean matchesFilter(Module m) {
         if (mSelectedAuthor != null) {
@@ -449,7 +448,6 @@ public class FiltersActivity extends Activity {
             if (!isActive) available.add(m);
         }
 
-        // Aplicar filtros a las dos listas (sin alterar el orden de la cadena)
         List<Module> activeVisible    = new ArrayList<Module>();
         List<Module> availableVisible = new ArrayList<Module>();
 
@@ -497,18 +495,40 @@ public class FiltersActivity extends Activity {
         }
 
         if (!availableVisible.isEmpty()) {
+            int total   = availableVisible.size();
+            int toShow  = Math.min(total, mAvailableLimit);
+
             mLlFilters.addView(sectionHeader("DISPONIBLES (" + available.size() + ")"));
-            for (Module m : availableVisible) {
-                mLlFilters.addView(buildRow(m, -1, 0, false));
+            for (int i = 0; i < toShow; i++) {
+                mLlFilters.addView(buildRow(availableVisible.get(i), -1, 0, false));
+            }
+
+            if (toShow < total) {
+                final int remaining = total - toShow;
+                TextView btn = Ui.text(this,
+									   "Mostrar más (" + remaining + " restantes)",
+									   13, Ui.ACCENT, true);
+                btn.setGravity(Gravity.CENTER);
+                btn.setBackground(Ui.roundRectStroke(
+                                      Ui.BG_ELEV, Ui.ACCENT_SOFT, this, 10, 1f));
+                int hp = Ui.dp(this, 16);
+                int vp = Ui.dp(this, 12);
+                btn.setPadding(hp, vp, hp, vp);
+                btn.setClickable(true);
+                btn.setOnClickListener(new View.OnClickListener() {
+                        @Override public void onClick(View v) {
+                            mAvailableLimit += AVAILABLE_PAGE_SIZE;
+                            rebuildList();
+                        }
+                    });
+                LinearLayout.LayoutParams lp = Ui.lp(MP, WC);
+                lp.topMargin = Ui.dp(this, 10);
+                mLlFilters.addView(btn, lp);
             }
         }
 
         mTvCount.setText(String.valueOf(active.size()));
     }
-
-    // -------------------------------------------------------------------------
-    // Render de filas
-    // -------------------------------------------------------------------------
 
     private TextView sectionHeader(String s) {
         TextView tv = Ui.text(this, s, 11, Ui.TEXT_TERTIARY, true);
@@ -572,7 +592,6 @@ public class FiltersActivity extends Activity {
             chipLp.leftMargin = Ui.dp(this, 8);
             nameRow.addView(typeChip, chipLp);
         }
-
         col.addView(nameRow);
 
         String subtitle = "por " + module.getAuthor();
@@ -586,8 +605,8 @@ public class FiltersActivity extends Activity {
 
         if (!isActive && !module.getParamDefs().isEmpty()) {
             TextView hint = Ui.text(this, "· " + module.getParamDefs().size() + " parámetro" +
-                                    (module.getParamDefs().size() == 1 ? "" : "s") + " configurables",
-                                    11, Ui.ACCENT, false);
+									(module.getParamDefs().size() == 1 ? "" : "s") + " configurables",
+									11, Ui.ACCENT, false);
             LinearLayout.LayoutParams hintLp = Ui.lp(MP, WC);
             hintLp.topMargin = Ui.dp(this, 3);
             col.addView(hint, hintLp);
@@ -631,7 +650,6 @@ public class FiltersActivity extends Activity {
 
             TextView gear = makeIconButton("\u2699");
             gear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-
             gear.setTextColor(hasCustomParams ? Ui.ACCENT : Ui.TEXT_SECOND);
             gear.setBackground(Ui.buttonBgStroke(
                                    this,
@@ -654,7 +672,6 @@ public class FiltersActivity extends Activity {
                 dotLp.rightMargin = Ui.dp(this, 2);
                 gearWrapper.addView(dot, dotLp);
             }
-
             row.addView(gearWrapper, gwLp);
         }
 
@@ -677,6 +694,9 @@ public class FiltersActivity extends Activity {
                     }
                     mModuleManager.setEnabled(module, isChecked);
                     mChanged = true;
+                    // El rebuild es necesario porque el módulo cambia de
+                    // sección (Activa ↔ Disponible). Ahora es rápido porque
+                    // save() sólo re-serializa el módulo que cambió.
                     rebuildList();
                     Toast.makeText(FiltersActivity.this,
                                    module.getName() + (isChecked ? " activado" : " desactivado"),
@@ -684,7 +704,6 @@ public class FiltersActivity extends Activity {
                 }
             });
         row.addView(sw);
-
         return outer;
     }
 
@@ -692,7 +711,6 @@ public class FiltersActivity extends Activity {
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.RECTANGLE);
         d.setColor(Ui.ACCENT);
-
         float r = Ui.dp(this, 3);
         d.setCornerRadii(new float[]{0, 0, r, r, r, r, 0, 0});
         return d;
@@ -830,8 +848,8 @@ public class FiltersActivity extends Activity {
             LinearLayout minMax = new LinearLayout(this);
             minMax.setOrientation(LinearLayout.HORIZONTAL);
             TextView tvMin = Ui.text(this,
-                                     showDecimal ? String.format("%.2f", def.min) : String.valueOf((int) def.min),
-                                     11, Ui.TEXT_TERTIARY, false);
+									 showDecimal ? String.format("%.2f", def.min) : String.valueOf((int) def.min),
+									 11, Ui.TEXT_TERTIARY, false);
 
             String defaultLabel = showDecimal
                 ? String.format("default: %.2f", def.defaultValue)
@@ -840,8 +858,8 @@ public class FiltersActivity extends Activity {
             tvDefault.setGravity(Gravity.CENTER);
 
             TextView tvMax = Ui.text(this,
-                                     showDecimal ? String.format("%.2f", def.max) : String.valueOf((int) def.max),
-                                     11, Ui.TEXT_TERTIARY, false);
+									 showDecimal ? String.format("%.2f", def.max) : String.valueOf((int) def.max),
+									 11, Ui.TEXT_TERTIARY, false);
             minMax.addView(tvMin, Ui.lp(0, WC, 1f));
             minMax.addView(tvDefault, Ui.lp(0, WC, 1f));
             minMax.addView(tvMax);
@@ -860,7 +878,6 @@ public class FiltersActivity extends Activity {
                         mModuleManager.setParamValue(module, e.getKey(), e.getValue().defaultValue);
                     }
                     mChanged = true;
-
                     Toast.makeText(FiltersActivity.this,
                                    module.getName() + ": parámetros restablecidos",
                                    Toast.LENGTH_SHORT).show();
@@ -875,10 +892,6 @@ public class FiltersActivity extends Activity {
         String mod = modified ? "  ●" : "";
         tv.setText(label + ": " + v + mod);
     }
-
-    // -------------------------------------------------------------------------
-    // Fila del overlay de FPS
-    // -------------------------------------------------------------------------
 
     private View buildFpsOverlayRow() {
         LinearLayout row = new LinearLayout(this);
@@ -901,7 +914,7 @@ public class FiltersActivity extends Activity {
         mBtnFpsPosition = Ui.text(this, "\uD83D\uDCCD", 18, Ui.TEXT_PRIMARY, false);
         mBtnFpsPosition.setGravity(Gravity.CENTER);
         mBtnFpsPosition.setBackground(Ui.buttonBgStroke(
-                                          this, Ui.BG_ELEV, Ui.ACCENT_SOFT, Ui.DIVIDER, 22, 1f));
+										  this, Ui.BG_ELEV, Ui.ACCENT_SOFT, Ui.DIVIDER, 22, 1f));
         mBtnFpsPosition.setClickable(true);
         mBtnFpsPosition.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
@@ -921,14 +934,11 @@ public class FiltersActivity extends Activity {
                 @Override
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                     if (mFpsOverlay == isChecked) return;
-
                     mFpsOverlay = isChecked;
-
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                         .edit()
                         .putBoolean(PREF_FPS_OVERLAY, isChecked)
                         .commit();
-
                     sendFpsOverlayBroadcast(isChecked);
                     mChanged = true;
                     updateFpsPositionButtonState();
