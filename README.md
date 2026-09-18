@@ -102,5 +102,3 @@ Demeter nace de la pasión por los juegos y la experimentación visual. Pruébal
 Copyright © 2026 LexusYTG — leonpackpro@gmail.com
 
 ---
-
-AnaCronix
