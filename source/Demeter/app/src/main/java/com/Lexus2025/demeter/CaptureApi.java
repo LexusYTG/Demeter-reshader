@@ -38,6 +38,10 @@ public class CaptureApi {
         if (mRenderer != null) mRenderer.setTestMode(testMode);
     }
 
+    public void setFrameGenGeneration(int generation) {
+        if (mRenderer != null) mRenderer.setFrameGenGeneration(generation);
+    }
+
     public void sendFrame(Bitmap frame) {
         if (mRenderer != null) mRenderer.receiveFrame(frame);
     }

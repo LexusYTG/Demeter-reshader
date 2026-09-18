@@ -52,7 +52,7 @@ public class CaptureAreaActivity extends Activity {
         getWindow().setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        
+
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
@@ -123,7 +123,7 @@ public class CaptureAreaActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        
+
         if (hasFocus) {
             getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -304,7 +304,7 @@ public class CaptureAreaActivity extends Activity {
         }
 
         private void clamp() {
-            
+
             int w = mSel.width(), h = mSel.height();
             if (mSel.left < 0)             { mSel.left = 0;       mSel.right  = w; }
             if (mSel.top  < 0)             { mSel.top  = 0;       mSel.bottom = h; }

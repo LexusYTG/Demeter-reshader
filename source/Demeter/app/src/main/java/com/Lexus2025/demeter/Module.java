@@ -17,7 +17,7 @@ import java.util.Map;
 
 public class Module {
 
-    public enum Type { MODIFIER, RENDERER, FRAMEGEN }
+    public enum Type { MODIFIER, RENDERER, FRAMEGEN, FRAMEGEN_G3 }
 
     public static class ParamDef {
         public final String label;
@@ -45,12 +45,6 @@ public class Module {
     private ShaderFilter mShaderFilter;
     private String mCompilationError;
 
-    /**
-     * Caché del JSON serializado de este módulo. Se invalida (se pone a null)
-     * cuando cambia cualquier campo que forme parte del JSON (enabled o params).
-     * Los shaders, nombre, autor, versión y paramDefs son inmutables y por tanto
-     * no invalidan la caché.
-     */
     private volatile String mCachedJson;
 
     public Module(String name, String author, String version, Type type,
@@ -82,20 +76,17 @@ public class Module {
     public void setEnabled(boolean enabled) {
         if (mEnabled == enabled) return;
         mEnabled = enabled;
-        mCachedJson = null;    // invalida caché
+        mCachedJson = null;
     }
 
     public void setParamValue(String uniformName, float value) {
         if (!mParamDefs.containsKey(uniformName)) return;
         Float old = mParams.get(uniformName);
-        // Evita invalidar la caché si el valor no cambió realmente
-        // (importante: un SeekBar puede llamar 60 veces/seg con el mismo valor).
         if (old != null && Math.abs(old - value) < 0.0001f) return;
         mParams.put(uniformName, value);
         mCachedJson = null;
     }
 
-    /** Acceso directo para ModuleManager. */
     public String getCachedJson()             { return mCachedJson; }
     public void   setCachedJson(String json)  { mCachedJson = json; }
 
@@ -108,7 +99,7 @@ public class Module {
                 mCompilationError = e.getMessage();
                 setEnabled(false);
                 android.util.Log.e("Module",
-								   "Error compilando shader para " + mName + ": " + mCompilationError);
+                                   "Error compilando shader para " + mName + ": " + mCompilationError);
             }
         }
         return mShaderFilter;

@@ -71,7 +71,6 @@ public class FpsPositionActivity extends Activity {
         mOvW      = (int)(CaptureService.FPS_OVERLAY_WIDTH_DP  * d + 0.5f);
         mOvH      = (int)(CaptureService.FPS_OVERLAY_HEIGHT_DP * d + 0.5f);
 
-        // Posición actual desde prefs (o default top-right si nunca se configuró)
         SharedPreferences prefs = getSharedPreferences(
             FiltersActivity.PREFS_NAME, MODE_PRIVATE);
         int savedX = prefs.getInt(PREF_POS_X, -1);
@@ -83,7 +82,6 @@ public class FpsPositionActivity extends Activity {
         int startX = (savedX >= 0) ? savedX : defaultX;
         int startY = (savedY >= 0) ? savedY : defaultY;
 
-        // Clamp por si la rotación dejó las coords fuera de pantalla
         startX = clamp(startX, 0, mScreenW - mOvW);
         startY = clamp(startY, 0, mScreenH - mOvH);
 
@@ -177,8 +175,6 @@ public class FpsPositionActivity extends Activity {
         return Math.max(lo, Math.min(v, hi));
     }
 
-    // -------------------------------------------------------------------------
-
     private class PinView extends View {
 
         private final Paint mDimPaint;
@@ -240,7 +236,7 @@ public class FpsPositionActivity extends Activity {
             float x = e.getX(), y = e.getY();
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    // Solo arrastramos si toca dentro del rect del pin
+
                     if (mRect.contains((int) x, (int) y)) {
                         mDragging = true;
                         mOffsetX  = x - mRect.left;
@@ -270,20 +266,17 @@ public class FpsPositionActivity extends Activity {
 
         @Override
         protected void onDraw(Canvas canvas) {
-            // Fondo oscurecido
+
             canvas.drawRect(0, 0, getWidth(), getHeight(), mDimPaint);
 
-            // Relleno y borde del pin
             canvas.drawRect(mRect, mFillPaint);
             canvas.drawRect(mRect, mBorderPaint);
 
-            // Cruz central (indica el centro exacto del overlay)
             canvas.drawLine(mRect.centerX(), mRect.top,
                             mRect.centerX(), mRect.bottom, mCrosshairPaint);
             canvas.drawLine(mRect.left, mRect.centerY(),
                             mRect.right, mRect.centerY(), mCrosshairPaint);
 
-            // Etiqueta
             float ly = (mRect.top > 26) ? mRect.top - 8 : mRect.bottom + 22;
             canvas.drawText("FPS", mRect.left + 4, ly, mLabelPaint);
         }

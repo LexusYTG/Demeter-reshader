@@ -125,7 +125,6 @@ public class ShaderStoreActivity extends Activity {
     private ProgressBar  mRefreshSpinner;
     private boolean      mRefreshing = false;
 
-    // ---- Estado de instalación (uno a la vez) ----
     private volatile boolean mInstalling = false;
     private View     mInstallOverlay;
     private TextView mTvInstallLabel;
@@ -214,12 +213,8 @@ public class ShaderStoreActivity extends Activity {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // UI
-    // -------------------------------------------------------------------------
-
     private View buildRoot() {
-        // FrameLayout exterior para poder superponer el overlay de instalación.
+
         FrameLayout outer = new FrameLayout(this);
 
         LinearLayout root = new LinearLayout(this);
@@ -275,16 +270,12 @@ public class ShaderStoreActivity extends Activity {
         return outer;
     }
 
-    // -------------------------------------------------------------------------
-    // Overlay de instalación (bloqueante, uno a la vez)
-    // -------------------------------------------------------------------------
-
     private void buildInstallOverlay() {
         FrameLayout overlay = new FrameLayout(this);
         overlay.setBackgroundColor(0xCC000000);
         overlay.setClickable(true);
         overlay.setFocusable(true);
-        // Consume cualquier toque para que no llegue a lo de abajo.
+
         overlay.setOnTouchListener(new View.OnTouchListener() {
 				@Override public boolean onTouch(View v, MotionEvent e) { return true; }
 			});
@@ -334,10 +325,6 @@ public class ShaderStoreActivity extends Activity {
             mInstallOverlay.setVisibility(View.GONE);
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Resto de UI (header, search, chips, estados, etc.)
-    // -------------------------------------------------------------------------
 
     private View buildHeader() {
         LinearLayout row = new LinearLayout(this);
@@ -1001,10 +988,6 @@ public class ShaderStoreActivity extends Activity {
         return wrap;
     }
 
-    // -------------------------------------------------------------------------
-    // Instalación: uno a la vez, con overlay bloqueante
-    // -------------------------------------------------------------------------
-
     private void installShader(final ShaderEntry entry, final TextView btn) {
         if (mInstalling) {
             Toast.makeText(this, "Ya hay una instalación en curso",
@@ -1013,11 +996,8 @@ public class ShaderStoreActivity extends Activity {
         }
         mInstalling = true;
 
-        // Feedback inmediato + bloqueo de la UI
         showInstallOverlay(entry.name);
 
-        // Cambiamos visualmente el botón aunque todavía no esté instalado
-        // (quedará bloqueado tras el overlay, pero da feedback).
         btn.setText("Instalando…");
         btn.setEnabled(false);
 
@@ -1026,18 +1006,14 @@ public class ShaderStoreActivity extends Activity {
                     try {
                         final String json = downloadString(entry.downloadUrl);
 
-                        // Parseo + inserción en background
                         mModuleManager.installFromJson(json);
 
                         mUi.post(new Runnable() {
                                 @Override public void run() {
-                                    // Ocultamos overlay → UI liberada
+
                                     hideInstallOverlay();
                                     mInstalling = false;
 
-                                    // Actualizamos SÓLO el botón de esta entrada.
-                                    // NO llamamos renderCatalog() (era lo que
-                                    // congelaba con catálogos grandes).
                                     btn.setText("Instalado");
                                     btn.setEnabled(false);
                                     btn.setTextColor(Ui.TEXT_SECOND);

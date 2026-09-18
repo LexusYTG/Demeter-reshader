@@ -56,7 +56,7 @@ public final class BitmapPool {
             q = new ArrayDeque<Bitmap>();
             sPool.put(key, q);
         }
-        
+
         if (q.contains(b)) return;
 
         if (q.size() < MAX_PER_SIZE) {

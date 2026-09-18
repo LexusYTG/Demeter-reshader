@@ -263,18 +263,13 @@ public class GlRenderer {
         int thirdW = mSurfaceW / 3;
         int lastW  = mSurfaceW - thirdW * 2;
 
-        // UN SOLO clear al inicio. glClear() ignora el viewport y borra
-        // todo el framebuffer, así que los passes siguientes no deben
-        // llamarlo o se cargan lo ya dibujado.
         GLES20.glClearColor(0f, 0f, 0f, 1f);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
-        // Franja izquierda: A con MODIFIER
         GLES20.glViewport(0, 0, thirdW, mSurfaceH);
         ShaderFilter s1 = (modShader != null) ? modShader : mPassthroughShader;
         s1.draw(mGenTextures[slotA], mVertexBuffer, mTexCoordBuffer, modParams);
 
-        // Franja central: FRAMEGEN(A, C) → frame falso
         GLES20.glViewport(thirdW, 0, thirdW, mSurfaceH);
         if (fgShader != null) {
             int[] texIds = { mGenTextures[slotA], mGenTextures[slotC] };
@@ -288,12 +283,10 @@ public class GlRenderer {
                                     mVertexBuffer, mTexCoordBuffer, null);
         }
 
-        // Franja derecha: C con MODIFIER
         GLES20.glViewport(thirdW * 2, 0, lastW, mSurfaceH);
         ShaderFilter s3 = (modShader != null) ? modShader : mPassthroughShader;
         s3.draw(mGenTextures[slotC], mVertexBuffer, mTexCoordBuffer, modParams);
 
-        // Restaurar viewport completo
         GLES20.glViewport(0, 0, mSurfaceW, mSurfaceH);
 
         return mEgl.eglSwapBuffers(mEglDisplay, mEglSurface);

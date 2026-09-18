@@ -42,11 +42,13 @@ public class CaptureService extends Service {
     public static final String EXTRA_ADAPTIVE   = "adaptive";
     public static final String EXTRA_FPS_OVERLAY = "fps_overlay";
 
-    public static final String ACTION_STOP        = "com.Lexus2025.demeter.STOP_CAPTURE";
-    public static final String ACTION_FPS_OVERLAY = "com.Lexus2025.demeter.FPS_OVERLAY";
-    public static final String EXTRA_FPS_ENABLED  = "fps_enabled";
+    public static final String ACTION_STOP          = "com.Lexus2025.demeter.STOP_CAPTURE";
+    public static final String ACTION_FPS_OVERLAY   = "com.Lexus2025.demeter.FPS_OVERLAY";
+    public static final String ACTION_FRAMEGEN_MODE = "com.Lexus2025.demeter.FRAMEGEN_MODE";
+    public static final String EXTRA_FPS_ENABLED    = "fps_enabled";
+    public static final String EXTRA_FRAMEGEN_MODE  = "framegen_mode";
 
-    private static final int  NOTIF_ID          = 1;
+    private static final int  NOTIF_ID = 1;
 
     public static final int FPS_OVERLAY_WIDTH_DP  = 80;
     public static final int FPS_OVERLAY_HEIGHT_DP = 36;
@@ -98,6 +100,7 @@ public class CaptureService extends Service {
 
     private BroadcastReceiver mStopReceiver;
     private BroadcastReceiver mFpsOverlayReceiver;
+    private BroadcastReceiver mFgModeReceiver;
 
     @Override
     public void onCreate() {
@@ -105,6 +108,7 @@ public class CaptureService extends Service {
         mMainHandler = new Handler();
         registerStopReceiver();
         registerFpsOverlayReceiver();
+        registerFgModeReceiver();
     }
 
     private void registerStopReceiver() {
@@ -131,14 +135,29 @@ public class CaptureService extends Service {
                     .getBoolean(FiltersActivity.PREF_FPS_OVERLAY,
                                 intent.getBooleanExtra(EXTRA_FPS_ENABLED, false));
 
-                Log.d(TAG, "FPS broadcast recibido: enabled=" + enabled);
-
                 if (enabled) showFpsOverlay();
                 else         hideFpsOverlay();
             }
         };
         IntentFilter filter = new IntentFilter(ACTION_FPS_OVERLAY);
         registerReceiver(mFpsOverlayReceiver, filter);
+    }
+
+    private void registerFgModeReceiver() {
+        mFgModeReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (!ACTION_FRAMEGEN_MODE.equals(intent.getAction())) return;
+
+                int mode = intent.getIntExtra(EXTRA_FRAMEGEN_MODE,
+                                              getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
+                                              .getInt(FiltersActivity.PREF_FRAMEGEN_MODE, 2));
+                Log.d(TAG, "FgMode broadcast: mode=" + mode);
+                if (mCaptureApi != null) mCaptureApi.setFrameGenGeneration(mode);
+            }
+        };
+        IntentFilter filter = new IntentFilter(ACTION_FRAMEGEN_MODE);
+        registerReceiver(mFgModeReceiver, filter);
     }
 
     @Override
@@ -190,7 +209,6 @@ public class CaptureService extends Service {
         boolean wantFps = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
             .getBoolean(FiltersActivity.PREF_FPS_OVERLAY,
                         intent.getBooleanExtra(EXTRA_FPS_OVERLAY, false));
-        Log.d(TAG, "onStartCommand: wantFps=" + wantFps);
         if (wantFps) showFpsOverlay();
 
         return START_NOT_STICKY;
@@ -404,6 +422,11 @@ public class CaptureService extends Service {
                     mRenderer   = new TargetRenderer(CaptureService.this, holder, sModuleManager);
                     mCaptureApi = new CaptureApi(mRenderer);
                     mCaptureApi.setModuleManager(sModuleManager);
+
+                    int fgMode = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
+                        .getInt(FiltersActivity.PREF_FRAMEGEN_MODE, 2);
+                    mCaptureApi.setFrameGenGeneration(fgMode);
+
                     mRenderer.setScaleInfo(mCaptureRect, mOverlayRect);
                     sCaptureApi = mCaptureApi;
                 }
@@ -447,8 +470,6 @@ public class CaptureService extends Service {
         mImageReader = ImageReader.newInstance(
             mScreenWidth, mScreenHeight, PixelFormat.RGBA_8888, 2);
 
-        // CLAVE: enviamos el frame directo al renderer desde este mismo hilo.
-        // Sin dispatcher, sin buffer, sin salto por el main thread.
         mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
                 @Override
                 public void onImageAvailable(ImageReader reader) {
@@ -593,6 +614,10 @@ public class CaptureService extends Service {
         if (mFpsOverlayReceiver != null) {
             try { unregisterReceiver(mFpsOverlayReceiver); } catch (Exception ignored) {}
             mFpsOverlayReceiver = null;
+        }
+        if (mFgModeReceiver != null) {
+            try { unregisterReceiver(mFgModeReceiver); } catch (Exception ignored) {}
+            mFgModeReceiver = null;
         }
         hideFpsOverlay();
         unregisterDisplayListener();

@@ -443,10 +443,10 @@
 
 ## Categoría: gaming
 
-###Motion-FrameGen
+### Motion-FrameGen
 - **Autor:** LexusYTG
 - **Enlace:** https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/main/Store/shaders/Motion-FrameGen.demeter
-- **Descripción:** Dibuja los frames intermedios asta llegar a 60 o al doble de la entrada usando la api de fg de Demeter-7+ si estas en demeter 6 o inferior ,no uses esto ,no funciona.
+- **Descripción:** Dibuja los frames intermedios hasta llegar a 60 fps o al doble de la entrada, usando la API de framegen de Demeter-7+. Si estás en Demeter-6 o inferior, no uses esto: no funciona.
 
 ### Bloom
 - **Autor:** Pix

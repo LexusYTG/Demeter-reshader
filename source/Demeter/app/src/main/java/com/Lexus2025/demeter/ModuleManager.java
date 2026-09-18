@@ -228,17 +228,21 @@ public class ModuleManager {
         scheduleSave();
     }
 
+    private boolean isFramegenType(Module.Type t) {
+        return t == Module.Type.FRAMEGEN || t == Module.Type.FRAMEGEN_G3;
+    }
+
     public void setEnabled(Module module, boolean enabled) {
         module.setEnabled(enabled);
         if (!enabled) {
             module.destroyShader();
             if (mActiveModule == module) mActiveModule = null;
             if (mActiveFrameGenModule == module) mActiveFrameGenModule = null;
-        } else if (module.getType() == Module.Type.FRAMEGEN) {
-            // Solo puede haber un FRAMEGEN activo. Desactiva cualquier otro.
+        } else if (isFramegenType(module.getType())) {
+
             for (Module other : mModules) {
                 if (other != module
-                    && other.getType() == Module.Type.FRAMEGEN
+                    && isFramegenType(other.getType())
                     && other.isEnabled()) {
                     other.setEnabled(false);
                     other.destroyShader();

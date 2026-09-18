@@ -1,6 +1,6 @@
 # SVU — Sistema de Versión Update
 
-**Versión actual:** Demeter-7
+**Versión actual:** Demeter-8
 
 ## Historial
 
@@ -11,3 +11,4 @@
 - Demeter-5
 - Demeter-6
 - Demeter-7
+- Demeter-8

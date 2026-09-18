@@ -108,7 +108,7 @@ public class OverlayPositionActivity extends Activity {
         btnAdapt.setOnClickListener(new View.OnClickListener() {
 				@Override public void onClick(View v) {
 					if (mCaptureRef != null) {
-						
+
 						mDragView.setRect(new Rect(mCaptureRef));
 					} else {
 						mDragView.setRect(new Rect(0, 0, mScreenW, mScreenH));
@@ -177,7 +177,7 @@ public class OverlayPositionActivity extends Activity {
         private final Paint mHandlePaint;
         private final Paint mLabelPaint;
         private final Paint mGridPaint;
-        private final Paint mCapRefPaint;  
+        private final Paint mCapRefPaint;
 
         private Rect mRect;
 
@@ -244,7 +244,7 @@ public class OverlayPositionActivity extends Activity {
         @Override
         protected void onSizeChanged(int w, int h, int oldw, int oldh) {
             if (mRect == null) {
-                
+
                 if (mCaptureRef != null) {
                     mRect = new Rect(mCaptureRef);
                 } else {
@@ -320,7 +320,7 @@ public class OverlayPositionActivity extends Activity {
         }
 
         private void clamp() {
-            
+
             int w = mRect.width(), h = mRect.height();
             if (mRect.left < 0)          { mRect.left  = 0;        mRect.right  = w; }
             if (mRect.top  < 0)          { mRect.top   = 0;        mRect.bottom = h; }

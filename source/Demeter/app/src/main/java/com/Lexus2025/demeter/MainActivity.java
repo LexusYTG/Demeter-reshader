@@ -132,7 +132,7 @@ public class MainActivity extends Activity {
                 Module frameGen = mModuleManager.getActiveFrameGenModule();
 
                 if (frameGen != null && frameGen.isEnabled()) {
-                    // Modo 3 franjas: A | FRAMEGEN(A,C) | C
+
                     Map<String, Float> modParams = null;
                     if (active != null && shader != null) {
                         modParams = new HashMap<String, Float>(active.getParams());
@@ -150,7 +150,7 @@ public class MainActivity extends Activity {
                         fgShader, fgParams,
                         mix);
                 } else {
-                    // Modo normal: 1 solo bitmap con MODIFIER
+
                     Map<String, Float> params = null;
                     if (active != null && shader != null) {
                         params = new HashMap<String, Float>(active.getParams());
@@ -754,9 +754,9 @@ public class MainActivity extends Activity {
                                 mPreviewRenderer = new GlRenderer();
                                 mPreviewGlReady  = mPreviewRenderer.init(holder);
                                 if (mPreviewGlReady) {
-                                    // Subimos el bitmap al slot principal (modo normal)
+
                                     mPreviewRenderer.uploadBitmap(buildPreviewTestBitmap(0));
-                                    // Y subimos A y C a los slots 0 y 1 para el modo 3 franjas
+
                                     mPreviewRenderer.uploadToGenSlot(0, buildPreviewTestBitmap(0));
                                     mPreviewRenderer.uploadToGenSlot(1, buildPreviewTestBitmap(1));
                                     refreshPreviewShaderLocked();
