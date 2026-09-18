@@ -1,0 +1,13 @@
+{
+  "name": "Comic Dots",
+  "author": "Ale",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uDotSize;\nuniform float uAngle;\nuniform float uIntensity;\nvoid main() {\n    vec2 uv = vTexCoord;\n    float a = uAngle;\n    mat2 rot = mat2(cos(a), -sin(a), sin(a), cos(a));\n    vec2 rp = rot * (uv - 0.5);\n    vec2 grid = floor(rp * uDotSize);\n    vec2 f = fract(rp * uDotSize) - 0.5;\n    float d = length(f);\n    float inDot = 1.0 - smoothstep(0.35, 0.5, d);\n    vec2 sampleUV = (grid + 0.5) / uDotSize;\n    sampleUV = rot * sampleUV + 0.5;\n    sampleUV = clamp(sampleUV, 0.0, 1.0);\n    vec3 src = texture2D(uTexture, sampleUV).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    float radius = sqrt(lum);\n    float dot2 = 1.0 - smoothstep(radius * 0.5 - 0.02, radius * 0.5 + 0.02, d);\n    vec3 col = vec3(dot2) * src;\n    col = mix(uv.y > 0.5 ? vec3(0.0) : vec3(1.0), col, dot2) * dot2;\n    vec3 finalCol = mix(vec3(1.0), src, dot2);\n    gl_FragColor = vec4(mix(texture2D(uTexture, uv).rgb, finalCol, uIntensity), 1.0);\n}\n",
+  "paramDefs": {
+    "uDotSize":   { "label": "Puntos", "min": 30.0, "max": 300.0, "default": 120.0 },
+    "uAngle":     { "label": "Ángulo", "min": 0.0, "max": 1.57, "default": 0.78 },
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.9 }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Void",
+  "author": "Ghost",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uMass;\nuniform float uSwirl;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord - 0.5;\n    float r = length(uv);\n    float a = atan(uv.y, uv.x);\n    float grav = uMass / (r * r + 0.02);\n    r -= grav * 0.05;\n    a += grav * uSwirl;\n    r = max(r, 0.001);\n    vec2 warpUV = vec2(cos(a), sin(a)) * r + 0.5;\n    float escape = 1.0 - smoothstep(0.0, 0.05, length(warpUV - 0.5));\n    vec3 col;\n    if (warpUV.x < 0.0 || warpUV.x > 1.0 || warpUV.y < 0.0 || warpUV.y > 1.0) {\n        col = vec3(0.0);\n    } else {\n        col = texture2D(uTexture, warpUV).rgb;\n    }\n    col = mix(col, vec3(0.0), escape);\n    float ring = smoothstep(0.02, 0.0, abs(length(warpUV - 0.5) - uMass * 0.3));\n    col += vec3(1.0, 0.6, 0.3) * ring * 0.4;\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uMass":  { "label": "Masa", "min": 0.02, "max": 0.3, "default": 0.08 },
+    "uSwirl": { "label": "Torbellino", "min": 0.0, "max": 5.0, "default": 1.5 },
+    "uTime":  { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Compass",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uLevels;\nuniform float uLineWidth;\nuniform float uIntensity;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    float level = lum * uLevels;\n    float frac = fract(level);\n    float line = smoothstep(0.5 - uLineWidth, 0.5, frac)\n               * smoothstep(0.5 + uLineWidth, 0.5, frac);\n    line = 1.0 - line;\n    vec3 contour = vec3(0.95, 0.95, 0.95);\n    vec3 col = mix(src, contour, line * uIntensity);\n    col = col * 0.85 + 0.1;\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "paramDefs": {
+    "uLevels":     { "label": "Niveles", "min": 3.0, "max": 30.0, "default": 12.0 },
+    "uLineWidth":  { "label": "Grosor línea", "min": 0.01, "max": 0.3, "default": 0.06 },
+    "uIntensity":  { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.85 }
+  }
+}

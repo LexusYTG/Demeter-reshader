@@ -1,0 +1,12 @@
+{
+  "name": "Rust",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uGrain;\nfloat hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    vec3 rust1 = vec3(0.45, 0.20, 0.08);\n    vec3 rust2 = vec3(0.75, 0.45, 0.18);\n    vec3 rust3 = vec3(0.95, 0.65, 0.35);\n    vec3 col;\n    if (lum < 0.4) col = mix(rust1, rust2, lum / 0.4);\n    else col = mix(rust2, rust3, (lum - 0.4) / 0.6);\n    float n = hash(floor(uv * 400.0));\n    col *= 0.9 + n * 0.2 * uGrain;\n    gl_FragColor = vec4(mix(src, col, uIntensity), 1.0);\n}\n",
+  "paramDefs": {
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.85 },
+    "uGrain":     { "label": "Grano", "min": 0.0, "max": 1.0, "default": 0.5 }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "Hex Grid",
+  "author": "Fractal",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uScale;\nuniform float uIntensity;\nfloat hexDist(vec2 p) {\n    p = abs(p);\n    return max(dot(p, normalize(vec2(1.0, 1.73))), p.x);\n}\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec2 p = uv * uScale;\n    vec2 a = mod(p, vec2(1.0, 1.73)) - vec2(0.5, 0.865);\n    vec2 b = mod(p + vec2(0.5, 0.865), vec2(1.0, 1.73)) - vec2(0.5, 0.865);\n    float d = min(hexDist(a), hexDist(b));\n    float edge = smoothstep(0.46, 0.5, d);\n    vec3 col = mix(src, vec3(0.5, 1.0, 0.7), edge * uIntensity);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "paramDefs": {
+    "uScale":     { "label": "Escala", "min": 3.0, "max": 30.0, "default": 10.0 },
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.6 }
+  }
+}

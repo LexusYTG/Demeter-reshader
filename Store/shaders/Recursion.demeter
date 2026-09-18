@@ -1,0 +1,14 @@
+{
+  "name": "Recursion",
+  "author": "Fractal",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uScale;\nuniform float uOffsetX;\nuniform float uOffsetY;\nuniform float uIntensity;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 col = vec3(0.0);\n    float w = 1.0;\n    vec2 center = vec2(0.5 + uOffsetX, 0.5 + uOffsetY);\n    for (int i = 0; i < 5; i++) {\n        vec2 scaled = (uv - center) / max(0.001, uScale) + center;\n        vec3 s = texture2D(uTexture, scaled).rgb;\n        col += s * w;\n        w *= uIntensity;\n        uv = scaled;\n    }\n    float totalW = 0.0;\n    w = 1.0;\n    for (int i = 0; i < 5; i++) { totalW += w; w *= uIntensity; }\n    col /= max(0.001, totalW);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "paramDefs": {
+    "uScale":     { "label": "Escala", "min": 1.5, "max": 6.0, "default": 2.5 },
+    "uOffsetX":   { "label": "Offset X", "min": -0.4, "max": 0.4, "default": 0.0 },
+    "uOffsetY":   { "label": "Offset Y", "min": -0.4, "max": 0.4, "default": 0.0 },
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.6 }
+  }
+}

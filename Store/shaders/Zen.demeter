@@ -1,0 +1,13 @@
+{
+  "name": "Zen",
+  "author": "AnaCronix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uBlur;\nuniform float uBloom;\nuniform float uWarmth;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 px = vec2(uBlur) * 0.004;\n    vec3 sum = vec3(0.0);\n    sum += texture2D(uTexture, uv).rgb * 0.4;\n    sum += texture2D(uTexture, uv + vec2(px.x, 0.0)).rgb * 0.15;\n    sum += texture2D(uTexture, uv + vec2(-px.x, 0.0)).rgb * 0.15;\n    sum += texture2D(uTexture, uv + vec2(0.0, px.y)).rgb * 0.15;\n    sum += texture2D(uTexture, uv + vec2(0.0, -px.y)).rgb * 0.15;\n    float lum = dot(sum, vec3(0.299, 0.587, 0.114));\n    sum += vec3(smoothstep(0.7, 1.0, lum)) * uBloom * 0.3;\n    sum = mix(sum, sum * vec3(1.05, 1.0, 0.95), uWarmth);\n    gl_FragColor = vec4(clamp(sum, 0.0, 1.0), 1.0);\n}\n",
+  "paramDefs": {
+    "uBlur":   { "label": "Desenfoque", "min": 0.0, "max": 3.0, "default": 0.6 },
+    "uBloom":  { "label": "Bloom", "min": 0.0, "max": 1.0, "default": 0.5 },
+    "uWarmth": { "label": "Calidez", "min": 0.0, "max": 1.0, "default": 0.4 }
+  }
+}

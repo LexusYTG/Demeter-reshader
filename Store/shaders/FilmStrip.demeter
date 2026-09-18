@@ -1,0 +1,14 @@
+{
+  "name": "Film Strip",
+  "author": "Ale",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uFrames;\nuniform float uScroll;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    float scrolledY = uv.y + uTime * uScroll;\n    float stripH = 1.0 / uFrames;\n    float stripIdx = floor(scrolledY / stripH);\n    float yInStrip = fract(scrolledY / stripH);\n    float sprocketTop = smoothstep(0.12, 0.16, yInStrip);\n    float sprocketBot = smoothstep(0.88, 0.84, yInStrip);\n    float inImage = sprocketTop * sprocketBot;\n    float frameOffset = stripIdx * 0.37;\n    vec2 imgUV = vec2(fract(uv.x + frameOffset), yInStrip);\n    vec3 col = texture2D(uTexture, imgUV).rgb;\n    float gutter = smoothstep(0.48, 0.5, abs(uv.x - 0.5) * 2.0 + 0.45);\n    col = mix(col, vec3(0.05), gutter * 0.8);\n    col *= inImage;\n    float holeX = fract(uv.x * 8.0);\n    float holeTop = smoothstep(0.03, 0.07, yInStrip) * smoothstep(0.11, 0.07, yInStrip);\n    float holeBot = smoothstep(0.89, 0.93, yInStrip) * smoothstep(0.97, 0.93, yInStrip);\n    float hole = (holeTop + holeBot) * smoothstep(0.35, 0.5, holeX) * smoothstep(0.65, 0.5, holeX);\n    col = max(col, vec3(0.15) * hole);\n    float sep = step(0.98, fract(scrolledY / stripH) );\n    col = mix(col, vec3(0.0), sep * 0.5);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uFrames": { "label": "Fotogramas", "min": 2.0, "max": 8.0, "default": 4.0 },
+    "uScroll": { "label": "Desplazar", "min": -1.0, "max": 1.0, "default": 0.15 },
+    "uTime":   { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Zipper",
+  "author": "Zeta",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uOpen;\nuniform float uTeeth;\nuniform float uOffset;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 c = uv - 0.5;\n    float open = uOpen;\n    float distanceFromCenter = abs(uv.x - 0.5) * 2.0;\n    float split = smoothstep(0.02, 0.0, abs(uv.x - 0.5));\n    vec2 offset = vec2(sign(uv.x - 0.5) * open * 0.2 * (1.0 - uv.y), 0.0);\n    vec2 srcUV = uv + offset;\n    vec3 col = texture2D(uTexture, srcUV).rgb;\n    float toothPattern = sin(uv.y * uTeeth * 3.14159 + uOffset);\n    float teeth = smoothstep(0.5, 1.0, abs(toothPattern));\n    float zipperArea = smoothstep(0.06, 0.0, abs(uv.x - 0.5) - open * 0.05);\n    vec3 teethCol = vec3(0.7, 0.7, 0.75);\n    col = mix(col, teethCol, teeth * zipperArea);\n    col = mix(col, vec3(0.05), split * (1.0 - open));\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "paramDefs": {
+    "uOpen":   { "label": "Abertura", "min": 0.0, "max": 1.0, "default": 0.3 },
+    "uTeeth":  { "label": "Dientes", "min": 10.0, "max": 80.0, "default": 40.0 },
+    "uOffset": { "label": "Offset", "min": 0.0, "max": 6.28, "default": 0.0 }
+  }
+}

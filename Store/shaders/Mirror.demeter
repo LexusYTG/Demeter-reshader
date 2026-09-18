@@ -1,0 +1,11 @@
+{
+  "name": "Mirror",
+  "author": "Runa",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uMode;\nvoid main() {\n    vec2 uv = vTexCoord;\n    if (uMode < 0.33) {\n        if (uv.x > 0.5) uv.x = 1.0 - uv.x;\n    } else if (uMode < 0.66) {\n        if (uv.y > 0.5) uv.y = 1.0 - uv.y;\n    } else {\n        if (uv.x > 0.5) uv.x = 1.0 - uv.x;\n        if (uv.y > 0.5) uv.y = 1.0 - uv.y;\n    }\n    gl_FragColor = vec4(texture2D(uTexture, uv).rgb, 1.0);\n}\n",
+  "paramDefs": {
+    "uMode": { "label": "Modo", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

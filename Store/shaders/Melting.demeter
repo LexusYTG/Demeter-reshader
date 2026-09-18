@@ -1,0 +1,14 @@
+{
+  "name": "Melting",
+  "author": "AnaCronix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uSpeed;\nuniform float uTime;\nfloat hash(float n){ return fract(sin(n) * 43758.5453); }\nfloat noise(float x){\n    float i = floor(x); float f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    return mix(hash(i), hash(i + 1.0), f);\n}\nvoid main() {\n    vec2 uv = vTexCoord;\n    float drip = 0.0;\n    for (int i = 0; i < 4; i++) {\n        float fi = float(i);\n        drip += noise(uv.x * (10.0 + fi * 6.0) + uTime * uSpeed * (0.5 + fi * 0.3)) / (1.0 + fi);\n    }\n    drip *= 0.5;\n    float melt = drip * uIntensity * (1.0 - uv.y);\n    vec2 srcUV = vec2(uv.x, uv.y + melt);\n    vec3 col = texture2D(uTexture, srcUV).rgb;\n    if (melt > 0.001) {\n        col = mix(col, col * 0.85, melt * 3.0);\n    }\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uIntensity": { "label": "Derretido", "min": 0.0, "max": 1.0, "default": 0.5 },
+    "uSpeed":     { "label": "Velocidad", "min": 0.0, "max": 3.0, "default": 0.6 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

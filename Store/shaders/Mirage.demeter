@@ -1,0 +1,14 @@
+{
+  "name": "Mirage",
+  "author": "Wisp",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uSpeed;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    float horizon = smoothstep(0.0, 1.0, uv.y);\n    float wave = sin(uv.y * 60.0 + uTime * uSpeed * 3.0);\n    float wave2 = sin(uv.y * 30.0 - uTime * uSpeed * 2.0);\n    float distortion = (wave + wave2) * 0.5;\n    float amount = distortion * uIntensity * 0.015 * (1.0 - horizon * 0.5);\n    vec2 srcUV = vec2(uv.x + amount, uv.y + abs(amount) * 0.5);\n    vec3 col = texture2D(uTexture, srcUV).rgb;\n    col.r = texture2D(uTexture, srcUV + vec2(amount * 0.3, 0.0)).r;\n    col.b = texture2D(uTexture, srcUV - vec2(amount * 0.3, 0.0)).b;\n    vec3 heat = vec3(1.0, 0.92, 0.75) * uIntensity * 0.15 * (1.0 - horizon);\n    col += heat;\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 3.0, "default": 1.0 },
+    "uSpeed":     { "label": "Velocidad", "min": 0.1, "max": 3.0, "default": 0.8 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

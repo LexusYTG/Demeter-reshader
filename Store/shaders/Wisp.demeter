@@ -1,0 +1,14 @@
+{
+  "name": "Wisp",
+  "author": "Wisp",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uSpeed;\nuniform float uTime;\nfloat hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nfloat noise(vec2 p){\n    vec2 i = floor(p); vec2 f = fract(p);\n    f = f * f * (3.0 - 2.0 * f);\n    return mix(mix(hash(i), hash(i + vec2(1.0,0.0)), f.x),\n               mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), f.x), f.y);\n}\nvoid main() {\n    vec2 uv = vTexCoord;\n    float t = uTime * uSpeed;\n    float n = noise(uv * 4.0 + vec2(t * 0.3, t * 0.5));\n    float n2 = noise(uv * 8.0 + vec2(-t * 0.4, t * 0.2));\n    float wisps = n * 0.6 + n2 * 0.4;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 wispColor = vec3(0.5, 0.85, 0.95) * wisps * uIntensity;\n    gl_FragColor = vec4(src + wispColor, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.5, "default": 0.6 },
+    "uSpeed":     { "label": "Velocidad", "min": 0.0, "max": 3.0, "default": 0.6 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

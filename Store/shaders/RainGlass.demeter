@@ -1,0 +1,15 @@
+{
+  "name": "Rain Glass",
+  "author": "gallego",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uDrops;\nuniform float uSpeed;\nuniform float uRefraction;\nuniform float uTime;\nfloat hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 offset = vec2(0.0);\n    for (int i = 0; i < 12; i++) {\n        float fi = float(i);\n        float seedX = hash(vec2(fi, 3.0));\n        float seedY = hash(vec2(fi, 7.0));\n        float seedT = hash(vec2(fi, 11.0));\n        float colX = floor(seedX * uDrops) / uDrops + 0.5 / uDrops;\n        float cyc = fract(uTime * uSpeed * (0.15 + seedT * 0.3) + seedY);\n        float colY = cyc;\n        float dist = length(vec2((uv.x - colX) * 3.0, uv.y - colY));\n        float radius = 0.02 + seedX * 0.03;\n        if (dist < radius) {\n            float t = 1.0 - dist / radius;\n            t = t * t;\n            offset.x += sin((uv.x - colX) * 60.0) * t * uRefraction * 0.02;\n            offset.y += cos((uv.y - colY) * 60.0) * t * uRefraction * 0.02;\n        }\n        float streakY = colY + 0.03;\n        float streakW = 0.004;\n        if (abs(uv.x - colX) < streakW && uv.y < colY && uv.y > colY - 0.15) {\n            offset.x += sin(uv.y * 100.0 + uTime * 5.0) * uRefraction * 0.008;\n        }\n    }\n    vec3 col = texture2D(uTexture, uv + offset).rgb;\n    float rim = length(offset) * 20.0;\n    col += vec3(rim * 0.4, rim * 0.5, rim * 0.6);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uDrops":      { "label": "Gotas", "min": 3.0, "max": 20.0, "default": 10.0 },
+    "uSpeed":      { "label": "Velocidad", "min": 0.1, "max": 3.0, "default": 0.6 },
+    "uRefraction": { "label": "Refracción", "min": 0.0, "max": 3.0, "default": 1.5 },
+    "uTime":       { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

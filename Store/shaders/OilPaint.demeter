@@ -1,0 +1,12 @@
+{
+  "name": "Oil Paint",
+  "author": "Pix",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uRadius;\nuniform float uLevels;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 px = vec2(uRadius) * 0.003;\n    float levels = max(2.0, floor(uLevels));\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 q = floor(src * levels + 0.5) / levels;\n    vec3 sum = q * 2.0;\n    sum += floor(texture2D(uTexture, uv + vec2(px.x, 0.0)).rgb * levels + 0.5) / levels;\n    sum += floor(texture2D(uTexture, uv + vec2(-px.x, 0.0)).rgb * levels + 0.5) / levels;\n    sum += floor(texture2D(uTexture, uv + vec2(0.0, px.y)).rgb * levels + 0.5) / levels;\n    sum += floor(texture2D(uTexture, uv + vec2(0.0, -px.y)).rgb * levels + 0.5) / levels;\n    sum /= 6.0;\n    gl_FragColor = vec4(sum, 1.0);\n}\n",
+  "paramDefs": {
+    "uRadius": { "label": "Pincel", "min": 0.5, "max": 6.0, "default": 2.0 },
+    "uLevels": { "label": "Capas", "min": 3.0, "max": 12.0, "default": 6.0 }
+  }
+}

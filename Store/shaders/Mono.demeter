@@ -1,0 +1,13 @@
+{
+  "name": "Mono",
+  "author": "Ale",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uContrast;\nuniform float uEdgeGlow;\nuniform float uVignette;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 px = vec2(0.0015);\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 n = texture2D(uTexture, uv + vec2(0.0, -px.y)).rgb;\n    vec3 s = texture2D(uTexture, uv + vec2(0.0, px.y)).rgb;\n    vec3 e = texture2D(uTexture, uv + vec2(px.x, 0.0)).rgb;\n    vec3 w = texture2D(uTexture, uv + vec2(-px.x, 0.0)).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    lum = clamp((lum - 0.5) * (1.0 + uContrast) + 0.5, 0.0, 1.0);\n    float edge = length(e - w) + length(n - s);\n    vec3 col = vec3(lum) + vec3(edge * uEdgeGlow);\n    vec2 c = uv - 0.5;\n    float vig = 1.0 - smoothstep(0.4, 0.8, length(c));\n    col *= mix(1.0, vig, uVignette);\n    gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n}\n",
+  "paramDefs": {
+    "uContrast":  { "label": "Contraste", "min": 0.0, "max": 3.0, "default": 1.0 },
+    "uEdgeGlow":  { "label": "Glow de bordes", "min": 0.0, "max": 3.0, "default": 1.2 },
+    "uVignette":  { "label": "Viñeteado", "min": 0.0, "max": 1.0, "default": 0.5 }
+  }
+}

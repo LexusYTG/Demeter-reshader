@@ -1,0 +1,15 @@
+{
+  "name": "Caustics",
+  "author": "Ember",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uScale;\nuniform float uSpeed;\nuniform float uIntensity;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    float t = uTime * uSpeed;\n    float c = 0.0;\n    for (int i = 0; i < 5; i++) {\n        float fi = float(i) + 1.0;\n        c += sin(uv.x * uScale * fi + t) * cos(uv.y * uScale * fi * 0.9 - t * 1.1);\n    }\n    c = c * 0.5 + 0.5;\n    c = pow(c, 2.5);\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 causticCol = vec3(0.7, 0.9, 1.0) * c * uIntensity;\n    vec3 col = src + causticCol;\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uScale":     { "label": "Escala", "min": 2.0, "max": 20.0, "default": 8.0 },
+    "uSpeed":     { "label": "Velocidad", "min": 0.1, "max": 3.0, "default": 0.7 },
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 2.0, "default": 0.7 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Pulse",
+  "author": "LexusYTG",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uSpeed;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    float pulse = sin(uTime * uSpeed) * 0.5 + 0.5;\n    vec3 pulseColor = vec3(\n        0.5 + 0.5 * sin(uTime * uSpeed),\n        0.5 + 0.5 * sin(uTime * uSpeed + 2.094),\n        0.5 + 0.5 * sin(uTime * uSpeed + 4.189));\n    vec3 col = mix(src, src * pulseColor + pulseColor * 0.15, uIntensity * pulse);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.7 },
+    "uSpeed":     { "label": "Velocidad", "min": 0.1, "max": 5.0, "default": 1.5 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}

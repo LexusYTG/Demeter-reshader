@@ -1,0 +1,14 @@
+{
+  "name": "Trance",
+  "author": "Vex",
+  "version": "1.0",
+  "type": "MODIFIER",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uSpeed;\nuniform float uTime;\nvoid main() {\n    vec3 src = texture2D(uTexture, vTexCoord).rgb;\n    vec3 shifted = src * vec3(\n        0.5 + 0.5 * cos(uTime * uSpeed),\n        0.5 + 0.5 * cos(uTime * uSpeed + 2.094),\n        0.5 + 0.5 * cos(uTime * uSpeed + 4.189));\n    shifted += vec3(0.05);\n    gl_FragColor = vec4(mix(src, shifted, uIntensity), 1.0);\n}\n",
+  "params": { "uTime": 0.0 },
+  "paramDefs": {
+    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.7 },
+    "uSpeed":     { "label": "Velocidad", "min": 0.1, "max": 5.0, "default": 1.0 },
+    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+  }
+}
