@@ -38,10 +38,7 @@ public class FiltersActivity extends Activity {
 
     private static final int REQ_FPS_POSITION = 201;
 
-    /** Cuántos módulos "disponibles" mostrar por página. */
     private static final int AVAILABLE_PAGE_SIZE = 20;
-
-    /** Debounce del buscador (ms). */
     private static final long SEARCH_DEBOUNCE_MS = 120L;
 
     private ModuleManager mModuleManager;
@@ -52,7 +49,6 @@ public class FiltersActivity extends Activity {
     private Switch        mFpsSwitch = null;
     private TextView      mBtnFpsPosition = null;
 
-    // Filtros
     private EditText             mSearch;
     private HorizontalScrollView mAuthorChipsScroll;
     private LinearLayout         mAuthorChips;
@@ -87,7 +83,6 @@ public class FiltersActivity extends Activity {
 
         mFpsOverlay = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .getBoolean(PREF_FPS_OVERLAY, false);
-        Log.d(TAG, "onCreate: pref FPS = " + mFpsOverlay);
 
         mModuleManager = new ModuleManager(this);
 
@@ -99,14 +94,8 @@ public class FiltersActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        // NOTA: ya NO llamamos mModuleManager.reload() aquí.
-        // FiltersActivity nunca abre la tienda; el Manager ya cargó el
-        // estado en onCreate. El reload() costaba parsear todo el JSON
-        // de SharedPreferences (con shaders grandes) cada vez.
         boolean fps = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .getBoolean(PREF_FPS_OVERLAY, false);
-        Log.d(TAG, "onResume: pref=" + fps + " mFpsOverlay=" + mFpsOverlay);
-
         if (mFpsOverlay != fps) {
             mFpsOverlay = fps;
             if (mFpsSwitch != null) mFpsSwitch.setChecked(fps);
@@ -439,8 +428,14 @@ public class FiltersActivity extends Activity {
         final List<Module> active = mModuleManager.getEnabledChain();
         final List<Module> all    = mModuleManager.getAll();
 
+        List<Module> frameGenModules = new ArrayList<Module>();
+        for (Module m : all) {
+            if (m.getType() == Module.Type.FRAMEGEN) frameGenModules.add(m);
+        }
+
         List<Module> available = new ArrayList<Module>();
         for (Module m : all) {
+            if (m.getType() == Module.Type.FRAMEGEN) continue;
             boolean isActive = false;
             for (Module a : active) {
                 if (a.getName().equals(m.getName())) { isActive = true; break; }
@@ -450,6 +445,7 @@ public class FiltersActivity extends Activity {
 
         List<Module> activeVisible    = new ArrayList<Module>();
         List<Module> availableVisible = new ArrayList<Module>();
+        List<Module> fgVisible        = new ArrayList<Module>();
 
         for (int i = 0; i < active.size(); i++) {
             Module m = active.get(i);
@@ -458,15 +454,18 @@ public class FiltersActivity extends Activity {
         for (Module m : available) {
             if (matchesFilter(m)) availableVisible.add(m);
         }
+        for (Module m : frameGenModules) {
+            if (matchesFilter(m)) fgVisible.add(m);
+        }
 
         boolean anyFilter = !mQuery.isEmpty()
             || mSelectedAuthor != null
             || mSelectedType != null;
 
-        if (active.isEmpty() && available.isEmpty()) {
+        if (active.isEmpty() && available.isEmpty() && frameGenModules.isEmpty()) {
             TextView tv = Ui.text(this,
-								  "No hay filtros instalados.\nUsa el botón + en la pantalla principal para importar uno.",
-								  14, Ui.TEXT_TERTIARY, false);
+                                  "No hay filtros instalados.\nUsa el botón + en la pantalla principal para importar uno.",
+                                  14, Ui.TEXT_TERTIARY, false);
             tv.setGravity(Gravity.CENTER);
             tv.setPadding(0, Ui.dp(this, 60), 0, 0);
             mLlFilters.addView(tv);
@@ -474,15 +473,23 @@ public class FiltersActivity extends Activity {
             return;
         }
 
-        if (anyFilter && activeVisible.isEmpty() && availableVisible.isEmpty()) {
+        if (anyFilter && activeVisible.isEmpty() && availableVisible.isEmpty()
+            && fgVisible.isEmpty()) {
             TextView tv = Ui.text(this,
-								  "No hay filtros que coincidan con la búsqueda",
-								  14, Ui.TEXT_TERTIARY, false);
+                                  "No hay filtros que coincidan con la búsqueda",
+                                  14, Ui.TEXT_TERTIARY, false);
             tv.setGravity(Gravity.CENTER);
             tv.setPadding(0, Ui.dp(this, 60), 0, 0);
             mLlFilters.addView(tv);
             mTvCount.setText(String.valueOf(active.size()));
             return;
+        }
+
+        if (!fgVisible.isEmpty()) {
+            mLlFilters.addView(sectionHeader("FRAME GENERATION (" + frameGenModules.size() + ")"));
+            for (Module m : fgVisible) {
+                mLlFilters.addView(buildFrameGenRow(m));
+            }
         }
 
         if (!activeVisible.isEmpty()) {
@@ -506,8 +513,8 @@ public class FiltersActivity extends Activity {
             if (toShow < total) {
                 final int remaining = total - toShow;
                 TextView btn = Ui.text(this,
-									   "Mostrar más (" + remaining + " restantes)",
-									   13, Ui.ACCENT, true);
+                                       "Mostrar más (" + remaining + " restantes)",
+                                       13, Ui.ACCENT, true);
                 btn.setGravity(Gravity.CENTER);
                 btn.setBackground(Ui.roundRectStroke(
                                       Ui.BG_ELEV, Ui.ACCENT_SOFT, this, 10, 1f));
@@ -605,8 +612,8 @@ public class FiltersActivity extends Activity {
 
         if (!isActive && !module.getParamDefs().isEmpty()) {
             TextView hint = Ui.text(this, "· " + module.getParamDefs().size() + " parámetro" +
-									(module.getParamDefs().size() == 1 ? "" : "s") + " configurables",
-									11, Ui.ACCENT, false);
+                                    (module.getParamDefs().size() == 1 ? "" : "s") + " configurables",
+                                    11, Ui.ACCENT, false);
             LinearLayout.LayoutParams hintLp = Ui.lp(MP, WC);
             hintLp.topMargin = Ui.dp(this, 3);
             col.addView(hint, hintLp);
@@ -694,9 +701,131 @@ public class FiltersActivity extends Activity {
                     }
                     mModuleManager.setEnabled(module, isChecked);
                     mChanged = true;
-                    // El rebuild es necesario porque el módulo cambia de
-                    // sección (Activa ↔ Disponible). Ahora es rápido porque
-                    // save() sólo re-serializa el módulo que cambió.
+                    rebuildList();
+                    Toast.makeText(FiltersActivity.this,
+                                   module.getName() + (isChecked ? " activado" : " desactivado"),
+                                   Toast.LENGTH_SHORT).show();
+                }
+            });
+        row.addView(sw);
+        return outer;
+    }
+
+    private View buildFrameGenRow(final Module module) {
+        final boolean isActiveFg = (mModuleManager.getActiveFrameGenModule() == module);
+
+        FrameLayout outer = new FrameLayout(this);
+        LinearLayout.LayoutParams outerLp = Ui.lp(MP, WC);
+        outerLp.topMargin    = Ui.dp(this, 4);
+        outerLp.bottomMargin = Ui.dp(this, 4);
+        outer.setLayoutParams(outerLp);
+
+        outer.setBackground(Ui.roundRect(Ui.BG_ELEV, this, 14));
+
+        if (isActiveFg) {
+            View accentBar = new View(this);
+            accentBar.setBackground(buildAccentBar());
+            FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
+                Ui.dp(this, 3), FrameLayout.LayoutParams.MATCH_PARENT);
+            outer.addView(accentBar, barLp);
+        }
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Ui.dp(this, 14);
+        int leftPad = isActiveFg ? Ui.dp(this, 17) : pad;
+        row.setPadding(leftPad, pad, pad, pad);
+        outer.addView(row, new FrameLayout.LayoutParams(MP, WC));
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams colLp = Ui.lp(0, WC, 1f);
+        colLp.rightMargin = Ui.dp(this, 8);
+        row.addView(col, colLp);
+
+        LinearLayout nameRow = new LinearLayout(this);
+        nameRow.setOrientation(LinearLayout.HORIZONTAL);
+        nameRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView name = Ui.text(this, module.getName(), 15, Ui.TEXT_PRIMARY, true);
+        nameRow.addView(name, Ui.lp(WC, WC));
+
+        if (isActiveFg) {
+            TextView chip = Ui.text(this, "EN USO", 9, 0xFF4ADE80, true);
+            chip.setLetterSpacing(0.10f);
+            chip.setBackground(Ui.roundRect(0xFF1A3A2A, this, 4));
+            int hp = Ui.dp(this, 6);
+            int vp = Ui.dp(this, 3);
+            chip.setPadding(hp, vp, hp, vp);
+            LinearLayout.LayoutParams chipLp = Ui.lp(WC, WC);
+            chipLp.leftMargin = Ui.dp(this, 8);
+            nameRow.addView(chip, chipLp);
+        }
+        col.addView(nameRow);
+
+        String subtitle = "por " + module.getAuthor();
+        if (module.getVersion() != null && !module.getVersion().isEmpty()) {
+            subtitle += "  ·  v" + module.getVersion();
+        }
+        TextView author = Ui.text(this, subtitle, 12, Ui.TEXT_TERTIARY, false);
+        LinearLayout.LayoutParams authLp = Ui.lp(MP, WC);
+        authLp.topMargin = Ui.dp(this, 2);
+        col.addView(author, authLp);
+
+        if (!module.getParamDefs().isEmpty()) {
+            boolean hasCustomParams = hasModifiedParams(module);
+
+            FrameLayout gearWrapper = new FrameLayout(this);
+            LinearLayout.LayoutParams gwLp = Ui.lp(Ui.dp(this, 40), Ui.dp(this, 40));
+            gwLp.rightMargin = Ui.dp(this, 4);
+
+            TextView gear = makeIconButton("\u2699");
+            gear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            gear.setTextColor(hasCustomParams ? Ui.ACCENT : Ui.TEXT_SECOND);
+            gear.setBackground(Ui.buttonBgStroke(
+                                   this,
+                                   hasCustomParams ? Ui.ACCENT_SOFT : Ui.BG_ELEV,
+                                   hasCustomParams ? Ui.ACCENT_SOFT : Ui.DIVIDER,
+                                   hasCustomParams ? Ui.ACCENT      : Ui.DIVIDER,
+                                   22, 1f));
+            gear.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) { showParamsDialog(module); }
+                });
+            gearWrapper.addView(gear, new FrameLayout.LayoutParams(MP, MP));
+
+            if (hasCustomParams) {
+                View dot = new View(this);
+                dot.setBackground(Ui.circle(Ui.ACCENT));
+                FrameLayout.LayoutParams dotLp = new FrameLayout.LayoutParams(
+                    Ui.dp(this, 8), Ui.dp(this, 8));
+                dotLp.gravity  = Gravity.TOP | Gravity.END;
+                dotLp.topMargin   = Ui.dp(this, 2);
+                dotLp.rightMargin = Ui.dp(this, 2);
+                gearWrapper.addView(dot, dotLp);
+            }
+            row.addView(gearWrapper, gwLp);
+        }
+
+        Switch sw = new Switch(this);
+        sw.setChecked(module.isEnabled());
+        sw.setShowText(false);
+        sw.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                @Override
+                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                    if (module.isEnabled() == isChecked) return;
+                    String err = module.getCompilationError();
+                    if (isChecked && err != null) {
+                        new AlertDialog.Builder(FiltersActivity.this)
+                            .setTitle("Error de compilación")
+                            .setMessage("\"" + module.getName() + "\" no se puede activar:\n\n" + err)
+                            .setPositiveButton("OK", null)
+                            .show();
+                        buttonView.setChecked(false);
+                        return;
+                    }
+                    mModuleManager.setEnabled(module, isChecked);
+                    mChanged = true;
                     rebuildList();
                     Toast.makeText(FiltersActivity.this,
                                    module.getName() + (isChecked ? " activado" : " desactivado"),
@@ -801,6 +930,12 @@ public class FiltersActivity extends Activity {
                                            isModified ? Ui.ACCENT : Ui.TEXT_PRIMARY, false);
             final float range = def.max - def.min;
             final boolean showDecimal = range <= 10f;
+            // Pasos del SeekBar: si el rango es grande, un paso por unidad entera.
+            // Si es pequeño (con decimales), 1000 pasos para precisión fina.
+            final int maxProgress = (range <= 100f)
+                ? 1000
+                : Math.max(1, (int)Math.round(range));
+
             updateParamLabel(label, def.label, initialValue, showDecimal, isModified);
             labelRow.addView(label, Ui.lp(0, WC, 1f));
 
@@ -813,11 +948,11 @@ public class FiltersActivity extends Activity {
             container.addView(labelRow);
 
             final SeekBar seekBar = new SeekBar(this);
-            seekBar.setMax(1000);
-            seekBar.setProgress(Math.round((initialValue - def.min) / range * 1000));
+            seekBar.setMax(maxProgress);
+            seekBar.setProgress(Math.round((initialValue - def.min) / range * maxProgress));
             seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                     @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
-                        float value = def.min + (progress / 1000f) * range;
+                        float value = def.min + (progress / (float) maxProgress) * range;
                         boolean mod = Math.abs(value - def.defaultValue) > 0.0001f;
                         label.setTextColor(mod ? Ui.ACCENT : Ui.TEXT_PRIMARY);
                         updateParamLabel(label, def.label, value, showDecimal, mod);
@@ -836,7 +971,7 @@ public class FiltersActivity extends Activity {
             resetBtn.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         mModuleManager.setParamValue(module, uniformRef, defRef.defaultValue);
-                        int prog = Math.round((defRef.defaultValue - defRef.min) / range * 1000);
+                        int prog = Math.round((defRef.defaultValue - defRef.min) / range * maxProgress);
                         seekBarRef.setProgress(prog);
                         label.setTextColor(Ui.TEXT_PRIMARY);
                         updateParamLabel(label, defRef.label, defRef.defaultValue, showDecimal, false);
@@ -848,8 +983,8 @@ public class FiltersActivity extends Activity {
             LinearLayout minMax = new LinearLayout(this);
             minMax.setOrientation(LinearLayout.HORIZONTAL);
             TextView tvMin = Ui.text(this,
-									 showDecimal ? String.format("%.2f", def.min) : String.valueOf((int) def.min),
-									 11, Ui.TEXT_TERTIARY, false);
+                                     showDecimal ? String.format("%.2f", def.min) : String.valueOf((int) def.min),
+                                     11, Ui.TEXT_TERTIARY, false);
 
             String defaultLabel = showDecimal
                 ? String.format("default: %.2f", def.defaultValue)
@@ -858,8 +993,8 @@ public class FiltersActivity extends Activity {
             tvDefault.setGravity(Gravity.CENTER);
 
             TextView tvMax = Ui.text(this,
-									 showDecimal ? String.format("%.2f", def.max) : String.valueOf((int) def.max),
-									 11, Ui.TEXT_TERTIARY, false);
+                                     showDecimal ? String.format("%.2f", def.max) : String.valueOf((int) def.max),
+                                     11, Ui.TEXT_TERTIARY, false);
             minMax.addView(tvMin, Ui.lp(0, WC, 1f));
             minMax.addView(tvDefault, Ui.lp(0, WC, 1f));
             minMax.addView(tvMax);
@@ -914,7 +1049,7 @@ public class FiltersActivity extends Activity {
         mBtnFpsPosition = Ui.text(this, "\uD83D\uDCCD", 18, Ui.TEXT_PRIMARY, false);
         mBtnFpsPosition.setGravity(Gravity.CENTER);
         mBtnFpsPosition.setBackground(Ui.buttonBgStroke(
-										  this, Ui.BG_ELEV, Ui.ACCENT_SOFT, Ui.DIVIDER, 22, 1f));
+                                          this, Ui.BG_ELEV, Ui.ACCENT_SOFT, Ui.DIVIDER, 22, 1f));
         mBtnFpsPosition.setClickable(true);
         mBtnFpsPosition.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
@@ -961,7 +1096,6 @@ public class FiltersActivity extends Activity {
         Intent intent = new Intent(CaptureService.ACTION_FPS_OVERLAY);
         intent.setPackage(getPackageName());
         intent.putExtra(CaptureService.EXTRA_FPS_ENABLED, enabled);
-        Log.d(TAG, "sendFpsOverlayBroadcast enabled=" + enabled);
         sendBroadcast(intent);
     }
 
@@ -969,7 +1103,6 @@ public class FiltersActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_FPS_POSITION) {
             if (resultCode == RESULT_OK) {
-                Log.d(TAG, "onActivityResult FPS position: reemitiendo overlay");
                 sendFpsOverlayBroadcast(mFpsOverlay);
                 mChanged = true;
             }

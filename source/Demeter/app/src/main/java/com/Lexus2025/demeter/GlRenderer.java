@@ -27,6 +27,7 @@ import javax.microedition.khronos.egl.EGLSurface;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.util.HashMap;
 import java.util.Map;
 
 public class GlRenderer {
@@ -66,8 +67,8 @@ public class GlRenderer {
     private EGLSurface mEglSurface = EGL10.EGL_NO_SURFACE;
     private EGLConfig  mEglConfig;
     private boolean    mInitialized = false;
-    private boolean    mIsEs3       = false;   
-    private boolean    mMsaaActive  = false;   
+    private boolean    mIsEs3       = false;
+    private boolean    mMsaaActive  = false;
 
     private boolean mTextureReady = false;
     private int     mSurfaceW = 0;
@@ -76,6 +77,7 @@ public class GlRenderer {
     private int[]        mTexture = new int[1];
     private FloatBuffer  mVertexBuffer;
     private FloatBuffer  mTexCoordBuffer;
+    private FloatBuffer  mTexCoordBufferFlipY;
     private ShaderFilter mPassthroughShader;
 
     private int[]     mGenTextures = new int[NUM_TEXTURES];
@@ -88,14 +90,18 @@ public class GlRenderer {
 
     private static final float[] VERTICES   = { -1f, -1f,  1f, -1f, -1f,  1f,  1f,  1f };
     private static final float[] TEX_COORDS = {  0f,  1f,  1f,  1f,  0f,  0f,  1f,  0f };
+    private static final float[] TEX_COORDS_FLIP_Y = {  0f,  0f,  1f,  0f,  0f,  1f,  1f,  1f };
 
     public GlRenderer() {
         mVertexBuffer = ByteBuffer.allocateDirect(VERTICES.length * 4)
-			.order(ByteOrder.nativeOrder()).asFloatBuffer();
+            .order(ByteOrder.nativeOrder()).asFloatBuffer();
         mVertexBuffer.put(VERTICES).position(0);
         mTexCoordBuffer = ByteBuffer.allocateDirect(TEX_COORDS.length * 4)
-			.order(ByteOrder.nativeOrder()).asFloatBuffer();
+            .order(ByteOrder.nativeOrder()).asFloatBuffer();
         mTexCoordBuffer.put(TEX_COORDS).position(0);
+        mTexCoordBufferFlipY = ByteBuffer.allocateDirect(TEX_COORDS_FLIP_Y.length * 4)
+            .order(ByteOrder.nativeOrder()).asFloatBuffer();
+        mTexCoordBufferFlipY.put(TEX_COORDS_FLIP_Y).position(0);
     }
 
     public boolean init(SurfaceHolder holder) {
@@ -123,7 +129,7 @@ public class GlRenderer {
             };
 
             if (!mEgl.eglChooseConfig(mEglDisplay, msaaAttribs, configs, 1, numConfigs)
-				|| numConfigs[0] == 0) {
+                || numConfigs[0] == 0) {
                 Log.w(TAG, "MSAA 4x no disponible, usando config sin MSAA");
                 if (!mEgl.eglChooseConfig(mEglDisplay, plainAttribs, configs, 1, numConfigs))
                     return false;
@@ -138,20 +144,20 @@ public class GlRenderer {
             int[] ctxAttribs2 = { 0x3098, 2, EGL10.EGL_NONE };
 
             mEglContext = mEgl.eglCreateContext(
-				mEglDisplay, mEglConfig, EGL10.EGL_NO_CONTEXT, ctxAttribs3);
+                mEglDisplay, mEglConfig, EGL10.EGL_NO_CONTEXT, ctxAttribs3);
             if (mEglContext != null && mEglContext != EGL10.EGL_NO_CONTEXT) {
                 mIsEs3 = true;
                 Log.d(TAG, "Contexto EGL creado con ES 3.0");
             } else {
                 Log.w(TAG, "ES 3.0 no disponible, cayendo a ES 2.0");
                 mEglContext = mEgl.eglCreateContext(
-					mEglDisplay, mEglConfig, EGL10.EGL_NO_CONTEXT, ctxAttribs2);
+                    mEglDisplay, mEglConfig, EGL10.EGL_NO_CONTEXT, ctxAttribs2);
                 if (mEglContext == null || mEglContext == EGL10.EGL_NO_CONTEXT) return false;
                 mIsEs3 = false;
             }
 
             mEglSurface = mEgl.eglCreateWindowSurface(
-				mEglDisplay, mEglConfig, holder.getSurface(), null);
+                mEglDisplay, mEglConfig, holder.getSurface(), null);
             if (mEglSurface == null || mEglSurface == EGL10.EGL_NO_SURFACE) return false;
 
             if (!mEgl.eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface, mEglContext))
@@ -169,7 +175,7 @@ public class GlRenderer {
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
 
             mPassthroughShader = new ShaderFilter(
-				PASSTHROUGH_VERTEX, PASSTHROUGH_FRAGMENT, null);
+                PASSTHROUGH_VERTEX, PASSTHROUGH_FRAGMENT, null);
 
             GLES20.glGenTextures(NUM_TEXTURES, mGenTextures, 0);
             for (int i = 0; i < NUM_TEXTURES; i++) {
@@ -200,7 +206,7 @@ public class GlRenderer {
 
             resizeTextures(wArr[0], hArr[0]);
             Log.d(TAG, "GL initialized OK (" + mSurfaceW + "x" + mSurfaceH
-				  + ", ES3=" + mIsEs3 + ", MSAA=" + mMsaaActive + ")");
+                  + ", ES3=" + mIsEs3 + ", MSAA=" + mMsaaActive + ")");
             return true;
         } catch (Exception e) {
             Log.e(TAG, "GL init error", e);
@@ -242,6 +248,55 @@ public class GlRenderer {
                                           Map<String, Float> params) {
         if (!uploadBitmap(frame)) return false;
         return drawFrame(shader, params);
+    }
+
+    public synchronized boolean drawPreviewStripes(
+		int slotA, int slotC,
+		ShaderFilter modShader, Map<String, Float> modParams,
+		ShaderFilter fgShader, Map<String, Float> fgParams,
+		float mix) {
+
+        if (!mInitialized) return false;
+        if (!mGenReady[slotA] || !mGenReady[slotC]) return false;
+        if (mSurfaceW < 3 || mSurfaceH < 1) return false;
+
+        int thirdW = mSurfaceW / 3;
+        int lastW  = mSurfaceW - thirdW * 2;
+
+        // UN SOLO clear al inicio. glClear() ignora el viewport y borra
+        // todo el framebuffer, así que los passes siguientes no deben
+        // llamarlo o se cargan lo ya dibujado.
+        GLES20.glClearColor(0f, 0f, 0f, 1f);
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+
+        // Franja izquierda: A con MODIFIER
+        GLES20.glViewport(0, 0, thirdW, mSurfaceH);
+        ShaderFilter s1 = (modShader != null) ? modShader : mPassthroughShader;
+        s1.draw(mGenTextures[slotA], mVertexBuffer, mTexCoordBuffer, modParams);
+
+        // Franja central: FRAMEGEN(A, C) → frame falso
+        GLES20.glViewport(thirdW, 0, thirdW, mSurfaceH);
+        if (fgShader != null) {
+            int[] texIds = { mGenTextures[slotA], mGenTextures[slotC] };
+            Map<String, Float> p = (fgParams != null)
+                ? fgParams
+                : new HashMap<String, Float>();
+            p.put("uMix", mix);
+            fgShader.draw(texIds, mVertexBuffer, mTexCoordBuffer, p);
+        } else {
+            mPassthroughShader.draw(mGenTextures[slotA],
+                                    mVertexBuffer, mTexCoordBuffer, null);
+        }
+
+        // Franja derecha: C con MODIFIER
+        GLES20.glViewport(thirdW * 2, 0, lastW, mSurfaceH);
+        ShaderFilter s3 = (modShader != null) ? modShader : mPassthroughShader;
+        s3.draw(mGenTextures[slotC], mVertexBuffer, mTexCoordBuffer, modParams);
+
+        // Restaurar viewport completo
+        GLES20.glViewport(0, 0, mSurfaceW, mSurfaceH);
+
+        return mEgl.eglSwapBuffers(mEglDisplay, mEglSurface);
     }
 
     public synchronized boolean uploadToGenSlot(int slot, Bitmap bitmap) {
@@ -319,9 +374,9 @@ public class GlRenderer {
         if (!mInitialized) return false;
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFbo);
         GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
-									  GLES20.GL_TEXTURE_2D, texId, 0);
+                                      GLES20.GL_TEXTURE_2D, texId, 0);
         GLES20.glFramebufferRenderbuffer(GLES20.GL_FRAMEBUFFER, GLES20.GL_DEPTH_ATTACHMENT,
-										 GLES20.GL_RENDERBUFFER, mFboDepth);
+                                         GLES20.GL_RENDERBUFFER, mFboDepth);
         int status = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER);
         if (status != GLES20.GL_FRAMEBUFFER_COMPLETE) {
             Log.e(TAG, "Framebuffer not complete: " + status);
@@ -345,13 +400,13 @@ public class GlRenderer {
         for (int i = 3; i < NUM_TEXTURES; i++) {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mGenTextures[i]);
             GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA,
-								mSurfaceW, mSurfaceH, 0,
-								GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null);
+                                mSurfaceW, mSurfaceH, 0,
+                                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null);
             mGenReady[i] = false;
         }
         GLES20.glBindRenderbuffer(GLES20.GL_RENDERBUFFER, mFboDepth);
         GLES20.glRenderbufferStorage(GLES20.GL_RENDERBUFFER, GLES20.GL_DEPTH_COMPONENT16,
-									 mSurfaceW, mSurfaceH);
+                                     mSurfaceW, mSurfaceH);
         GLES20.glBindRenderbuffer(GLES20.GL_RENDERBUFFER, 0);
     }
 
@@ -362,7 +417,7 @@ public class GlRenderer {
         GLES20.glClearColor(0f, 0f, 0f, 1f);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
         ShaderFilter active = (shader != null) ? shader : mPassthroughShader;
-        active.draw(mGenTextures[sourceSlot], mVertexBuffer, mTexCoordBuffer, params);
+        active.draw(mGenTextures[sourceSlot], mVertexBuffer, mTexCoordBufferFlipY, params);
         endRenderToTexture();
         mGenReady[targetSlot] = true;
         return true;
@@ -372,13 +427,13 @@ public class GlRenderer {
                                                             ShaderFilter shader, Map<String, Float> params,
                                                             int targetSlot) {
         if (!mInitialized || shader == null || !mGenReady[slotA] || !mGenReady[slotB] ||
-			targetSlot < 0 || targetSlot >= NUM_TEXTURES) return false;
+            targetSlot < 0 || targetSlot >= NUM_TEXTURES) return false;
         if (!beginRenderToTexture(mGenTextures[targetSlot])) return false;
         GLES20.glClearColor(0f, 0f, 0f, 1f);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
         int[] texIds = { mGenTextures[slotA], mGenTextures[slotB] };
         if (params != null) params.put("uMix", mix);
-        shader.draw(texIds, mVertexBuffer, mTexCoordBuffer, params);
+        shader.draw(texIds, mVertexBuffer, mTexCoordBufferFlipY, params);
         endRenderToTexture();
         mGenReady[targetSlot] = true;
         return true;
@@ -386,7 +441,7 @@ public class GlRenderer {
 
     public synchronized boolean drawGenBlendToTexture(int slotA, int slotB, float mix, int targetSlot) {
         if (!mInitialized || mBlendProgram == 0 || !mGenReady[slotA] || !mGenReady[slotB] ||
-			targetSlot < 0 || targetSlot >= NUM_TEXTURES) return false;
+            targetSlot < 0 || targetSlot >= NUM_TEXTURES) return false;
         if (!beginRenderToTexture(mGenTextures[targetSlot])) return false;
         GLES20.glClearColor(0f, 0f, 0f, 1f);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
@@ -396,9 +451,9 @@ public class GlRenderer {
         GLES20.glEnableVertexAttribArray(mBlendPosHandle);
         GLES20.glVertexAttribPointer(mBlendPosHandle, 2, GLES20.GL_FLOAT, false, 0, mVertexBuffer);
 
-        mTexCoordBuffer.position(0);
+        mTexCoordBufferFlipY.position(0);
         GLES20.glEnableVertexAttribArray(mBlendTexCoordHandle);
-        GLES20.glVertexAttribPointer(mBlendTexCoordHandle, 2, GLES20.GL_FLOAT, false, 0, mTexCoordBuffer);
+        GLES20.glVertexAttribPointer(mBlendTexCoordHandle, 2, GLES20.GL_FLOAT, false, 0, mTexCoordBufferFlipY);
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mGenTextures[slotA]);
@@ -447,7 +502,7 @@ public class GlRenderer {
         if (!mInitialized) return;
         if (mEglSurface != EGL10.EGL_NO_SURFACE) {
             mEgl.eglMakeCurrent(mEglDisplay,
-								EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT);
+                                EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT);
             mEgl.eglDestroySurface(mEglDisplay, mEglSurface);
             mEglSurface = EGL10.EGL_NO_SURFACE;
         }
@@ -457,7 +512,7 @@ public class GlRenderer {
             return;
         }
         mEglSurface = mEgl.eglCreateWindowSurface(
-			mEglDisplay, mEglConfig, holder.getSurface(), null);
+            mEglDisplay, mEglConfig, holder.getSurface(), null);
         if (mEglSurface == null || mEglSurface == EGL10.EGL_NO_SURFACE) {
             Log.e(TAG, "setSurface: eglCreateWindowSurface falló");
             mSurfaceW = 0; mSurfaceH = 0;
@@ -496,7 +551,7 @@ public class GlRenderer {
             mFboDepth = 0;
         }
         mEgl.eglMakeCurrent(mEglDisplay,
-							EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT);
+                            EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT);
         if (mEglSurface != EGL10.EGL_NO_SURFACE)
             mEgl.eglDestroySurface(mEglDisplay, mEglSurface);
         if (mEglContext != EGL10.EGL_NO_CONTEXT)

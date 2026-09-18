@@ -38,10 +38,6 @@ public class CaptureApi {
         if (mRenderer != null) mRenderer.setTestMode(testMode);
     }
 
-    public void setFrameGenMode(boolean enabled) {
-        if (mRenderer != null) mRenderer.setFrameGenMode(enabled);
-    }
-
     public void sendFrame(Bitmap frame) {
         if (mRenderer != null) mRenderer.receiveFrame(frame);
     }
@@ -54,4 +50,3 @@ public class CaptureApi {
         if (mRenderer != null) mRenderer.setFpsOverlay(enabled);
     }
 }
-

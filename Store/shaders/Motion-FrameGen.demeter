@@ -1,0 +1,20 @@
+{
+  "name": "Motion FrameGen",
+  "author": "LexusYTG",
+  "version": "1.0",
+  "type": "FRAMEGEN",
+  "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
+  "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture0;\nuniform sampler2D uTexture1;\nuniform float uTexelSize;\nuniform float uMotionScale;\nuniform float uMaxFlow;\nuniform float uMix;\nvoid main() {\n    vec3 A = texture2D(uTexture0, vTexCoord).rgb;\n    vec3 C = texture2D(uTexture1, vTexCoord).rgb;\n    vec3 lumW = vec3(0.299, 0.587, 0.114);\n    float lumA = dot(A, lumW);\n    float lumC = dot(C, lumW);\n    float aL = dot(texture2D(uTexture0, vTexCoord - vec2(uTexelSize, 0.0)).rgb, lumW);\n    float aR = dot(texture2D(uTexture0, vTexCoord + vec2(uTexelSize, 0.0)).rgb, lumW);\n    float aU = dot(texture2D(uTexture0, vTexCoord - vec2(0.0, uTexelSize)).rgb, lumW);\n    float aD = dot(texture2D(uTexture0, vTexCoord + vec2(0.0, uTexelSize)).rgb, lumW);\n    float Ix = (aR - aL) * 0.5;\n    float Iy = (aD - aU) * 0.5;\n    float It = lumC - lumA;\n    float denom = Ix * Ix + Iy * Iy + 0.0001;\n    vec2 flow = -It * vec2(Ix, Iy) / denom;\n    float fl = length(flow);\n    if (fl > uMaxFlow) {\n        flow = flow * (uMaxFlow / fl);\n    }\n    vec2 warpCoord = vTexCoord - flow * 0.5 * uTexelSize * uMotionScale;\n    vec3 Awarp = texture2D(uTexture0, warpCoord).rgb;\n    gl_FragColor = vec4(mix(A, Awarp, uMix), 1.0);\n}\n",
+  "params": {
+    "uTexelSize": 0.000625,
+    "uMotionScale": 1.0,
+    "uMaxFlow": 4.0,
+    "uMix": 1.0
+  },
+  "paramDefs": {
+    "uTexelSize": { "label": "1/resolución", "min": 0.0001, "max": 0.01, "default": 0.000625 },
+    "uMotionScale": { "label": "Fuerza del warp", "min": 0, "max": 2, "default": 1.0 },
+    "uMaxFlow": { "label": "Máx. movimiento (px)", "min": 0, "max": 16, "default": 4.0 },
+    "uMix": { "label": "Mezcla con original", "min": 0, "max": 1, "default": 1.0 }
+  }
+}

@@ -41,28 +41,21 @@ public class ModuleManager {
     private static final String KEY_ACTIVE_FRAMEGEN_MODULE = "active_framegen_module";
     private static final String KEY_CHAIN_ORDER = "chain_order";
 
-    /** Agrupa ráfagas de cambios (sliders, toggles) en una sola escritura. */
     private static final long SAVE_DEBOUNCE_MS = 400L;
 
     private final Context mContext;
 
-    // CopyOnWriteArrayList permite iterar desde el hilo de guardado sin
-    // ConcurrentModificationException cuando la UI agrega/borra módulos.
     private final List<Module> mModules = new CopyOnWriteArrayList<Module>();
     private volatile Module mActiveModule = null;
     private volatile Module mActiveFrameGenModule = null;
     private final List<String> mChainOrder = new CopyOnWriteArrayList<String>();
 
-    // Hilo dedicado para el guardado. Mantiene la UI libre incluso en el
-    // primer guardado que serializa todos los módulos que aún no están
-    // cacheados.
     private final HandlerThread mSaveThread;
     private final Handler       mSaveHandler;
     private final Runnable      mSaveRunnable = new Runnable() {
         @Override public void run() { saveNow(); }
     };
 
-    // Handler de UI usado sólo para el reload() desde el hilo principal.
     private final Handler mUiHandler = new Handler(Looper.getMainLooper());
 
     public ModuleManager(Context context) {
@@ -73,7 +66,6 @@ public class ModuleManager {
         load();
     }
 
-    /** Libera el hilo de guardado. Llamar desde onDestroy de la Activity/Service. */
     public void shutdown() {
         if (mSaveThread != null) {
             mSaveHandler.removeCallbacks(mSaveRunnable);
@@ -223,8 +215,6 @@ public class ModuleManager {
         Module module = new Module(name, author, version, type,
                                    vertexShader, fragmentShader, params, paramDefs);
         mModules.add(module);
-        // Pre-cache del JSON original para no re-serializar este módulo
-        // en el primer saveNow() que siga.
         module.setCachedJson(obj.toString());
         scheduleSave();
     }
@@ -244,6 +234,17 @@ public class ModuleManager {
             module.destroyShader();
             if (mActiveModule == module) mActiveModule = null;
             if (mActiveFrameGenModule == module) mActiveFrameGenModule = null;
+        } else if (module.getType() == Module.Type.FRAMEGEN) {
+            // Solo puede haber un FRAMEGEN activo. Desactiva cualquier otro.
+            for (Module other : mModules) {
+                if (other != module
+                    && other.getType() == Module.Type.FRAMEGEN
+                    && other.isEnabled()) {
+                    other.setEnabled(false);
+                    other.destroyShader();
+                }
+            }
+            mActiveFrameGenModule = module;
         }
         scheduleSave();
     }
@@ -260,37 +261,18 @@ public class ModuleManager {
         return null;
     }
 
-    // -------------------------------------------------------------------------
-    // Guardado diferido (debounced) en hilo dedicado
-    // -------------------------------------------------------------------------
-
-    /**
-     * Programa el guardado en el hilo de guardado. Puede llamarse desde
-     * cualquier hilo. Agrupa ráfagas de cambios en una sola escritura.
-     */
     private void scheduleSave() {
         mSaveHandler.removeCallbacks(mSaveRunnable);
         mSaveHandler.postDelayed(mSaveRunnable, SAVE_DEBOUNCE_MS);
     }
 
-    /**
-     * Ejecuta el guardado. Corre SIEMPRE en el hilo de guardado (nunca en UI).
-     * Gracias al cache por módulo, sólo se re-serializan los que cambiaron;
-     * el resto se concatena directamente desde su JSON cacheado.
-     */
     private void saveNow() {
         try {
             StringBuilder arrBuilder = new StringBuilder();
             arrBuilder.append('[');
             boolean first = true;
 
-            JSONObject builtinStates = new JSONObject();
-
             for (Module m : mModules) {
-                if (BUILTIN_NAMES.contains(m.getName())) {
-                    builtinStates.put(m.getName(), m.isEnabled());
-                    continue;
-                }
                 String cached = m.getCachedJson();
                 if (cached == null) {
                     cached = serializeModule(m);
@@ -311,7 +293,6 @@ public class ModuleManager {
             SharedPreferences.Editor editor = prefs().edit();
             editor.putString(KEY_MODULES, arrBuilder.toString());
             editor.putString(KEY_CHAIN_ORDER, chainArr.toString());
-            editor.putString("builtin_states", builtinStates.toString());
             if (active != null) {
                 editor.putString(KEY_ACTIVE_MODULE, active.getName());
             } else {
@@ -322,11 +303,10 @@ public class ModuleManager {
             } else {
                 editor.remove(KEY_ACTIVE_FRAMEGEN_MODULE);
             }
-            editor.apply();   // escritura en disco asíncrona
+            editor.apply();
         } catch (JSONException ignored) { }
     }
 
-    /** Serializa un módulo. Se llama sólo si no tiene caché válida. */
     private String serializeModule(Module m) throws JSONException {
         JSONObject obj = new JSONObject();
         obj.put("name", m.getName());
@@ -359,59 +339,12 @@ public class ModuleManager {
     }
 
     public void reload() {
-        // Cancela un save pendiente y espera a que termine el actual para
-        // no sobreescribir lo que vamos a cargar.
         mSaveHandler.removeCallbacks(mSaveRunnable);
         mModules.clear();
         mActiveModule = null;
         mActiveFrameGenModule = null;
         mChainOrder.clear();
         load();
-    }
-
-    private static final java.util.Set<String> BUILTIN_NAMES =
-	new java.util.HashSet<String>(java.util.Arrays.asList(
-									  "Frame Generation"
-								  ));
-
-    private void loadBuiltins(JSONObject states) {
-        addBuiltin(new Module(
-					   "Frame Generation",
-					   "Demeter",
-					   "1.0",
-					   Module.Type.FRAMEGEN,
-					   "attribute vec4 aPosition;\n" +
-					   "attribute vec2 aTexCoord;\n" +
-					   "varying vec2 vTexCoord;\n" +
-					   "void main() {\n" +
-					   "    gl_Position = aPosition;\n" +
-					   "    vTexCoord = aTexCoord;\n" +
-					   "}\n",
-					   "precision mediump float;\n" +
-					   "varying vec2 vTexCoord;\n" +
-					   "uniform sampler2D uTexture0;\n" +
-					   "uniform sampler2D uTexture1;\n" +
-					   "uniform float uMix;\n" +
-					   "void main() {\n" +
-					   "    vec4 a = texture2D(uTexture0, vTexCoord);\n" +
-					   "    vec4 b = texture2D(uTexture1, vTexCoord);\n" +
-					   "    gl_FragColor = mix(a, b, uMix);\n" +
-					   "}\n",
-					   new HashMap<String, Float>(),
-					   new HashMap<String, Module.ParamDef>()
-				   ), states);
-    }
-
-    private void addBuiltin(Module m, JSONObject states) {
-        for (Module existing : mModules) {
-            if (existing.getName().equals(m.getName())) return;
-        }
-        try {
-            if (states.has(m.getName())) {
-                m.setEnabled(states.getBoolean(m.getName()));
-            }
-        } catch (JSONException e) { }
-        mModules.add(m);
     }
 
     private void load() {
@@ -477,9 +410,6 @@ public class ModuleManager {
                 );
                 m.setEnabled(obj.optBoolean("enabled", false));
                 mModules.add(m);
-
-                // *** CLAVE ***: cacheamos el JSON que acabamos de leer.
-                // Así el primer saveNow() no re-serializa nada de este módulo.
                 m.setCachedJson(obj.toString());
 
                 if (activeName != null && m.getName().equals(activeName)) mActiveModule = m;
@@ -487,12 +417,6 @@ public class ModuleManager {
                     mActiveFrameGenModule = m;
             }
         } catch (JSONException e) { }
-
-        String builtinStatesJson = prefs().getString("builtin_states", "{}");
-        JSONObject builtinStates;
-        try { builtinStates = new JSONObject(builtinStatesJson); }
-        catch (JSONException e) { builtinStates = new JSONObject(); }
-        loadBuiltins(builtinStates);
     }
 
     private SharedPreferences prefs() {

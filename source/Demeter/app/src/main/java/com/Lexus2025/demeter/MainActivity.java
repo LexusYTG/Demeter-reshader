@@ -92,7 +92,6 @@ public class MainActivity extends Activity {
     private TextView     mTvParamsTitle;
     private LinearLayout mParamsList;
 
-    private boolean mFrameGenMode = false;
     private Rect mCaptureRect = null;
     private Rect mOverlayRect = null;
 
@@ -127,30 +126,36 @@ public class MainActivity extends Activity {
             if (mPreviewGlReady && mPreviewRenderer != null) {
                 List<Module> previewChain = mModuleManager.getEnabledChain();
                 Module active = previewChain.isEmpty() ? null : previewChain.get(0);
-                Map<String, Float> params = null;
                 ShaderFilter shader = mPreviewShader;
                 float time = (System.currentTimeMillis() - mPreviewStartTimeMs) / 1000f;
 
-                if (active != null && shader != null) {
-                    params = new HashMap<String, Float>(active.getParams());
-                    params.put("uTime", time);
-                    if (mFrameGenMode) {
-                        params.put("uFrameGen", 1.0f);
-                        params.put("uMix", 0.5f + 0.5f * (float)Math.sin(time * 0.5f));
-                    } else {
-                        params.put("uFrameGen", 0.0f);
-                    }
-                }
+                Module frameGen = mModuleManager.getActiveFrameGenModule();
 
-                if (mFrameGenMode && shader != null
-                    && mPreviewFrameA != null && mPreviewFrameB != null) {
-                    mPreviewRenderer.uploadToGenSlot(0, mPreviewFrameA);
-                    mPreviewRenderer.uploadToGenSlot(1, mPreviewFrameB);
-                    mPreviewRenderer.drawGenBlendShader(
+                if (frameGen != null && frameGen.isEnabled()) {
+                    // Modo 3 franjas: A | FRAMEGEN(A,C) | C
+                    Map<String, Float> modParams = null;
+                    if (active != null && shader != null) {
+                        modParams = new HashMap<String, Float>(active.getParams());
+                        modParams.put("uTime", time);
+                    }
+                    ShaderFilter fgShader = frameGen.getShaderFilter();
+                    Map<String, Float> fgParams = new HashMap<String, Float>(frameGen.getParams());
+                    fgParams.put("uTime", time);
+                    Float mixObj = frameGen.getParams().get("uMix");
+                    float mix = (mixObj != null) ? mixObj : 0.5f;
+
+                    mPreviewRenderer.drawPreviewStripes(
                         0, 1,
-                        params != null && params.containsKey("uMix") ? params.get("uMix") : 0.5f,
-                        shader, params);
+                        (active != null) ? shader : null, modParams,
+                        fgShader, fgParams,
+                        mix);
                 } else {
+                    // Modo normal: 1 solo bitmap con MODIFIER
+                    Map<String, Float> params = null;
+                    if (active != null && shader != null) {
+                        params = new HashMap<String, Float>(active.getParams());
+                        params.put("uTime", time);
+                    }
                     mPreviewRenderer.drawFrame(shader, params);
                 }
             }
@@ -191,19 +196,12 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        // NOTA: ya no hacemos reload() aquí. Antes, cada vez que la app
-        // volvía a primer plano (o volvías de cualquier activity), se
-        // re-parseaba TODO el JSON de SharedPreferences (con shaders
-        // grandes), provocando lag. Ahora sólo recargamos cuando volvemos
-        // de Filters/Store (ver onActivityResult).
-
         updateStatusCard();
         rebuildParamsPanel();
 
         if (mState == CaptureState.PROJECTING) {
             boolean fps = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
                 .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
-            Log.d(TAG, "onResume: reemitiendo FPS=" + fps + " al servicio");
             Intent b = new Intent(CaptureService.ACTION_FPS_OVERLAY);
             b.setPackage(getPackageName());
             b.putExtra(CaptureService.EXTRA_FPS_ENABLED, fps);
@@ -404,12 +402,17 @@ public class MainActivity extends Activity {
         if (mParamsList == null) return;
         mParamsList.removeAllViews();
 
-        List<Module> paramsChain = mModuleManager.getEnabledChain();
-        Module active = paramsChain.isEmpty() ? null : paramsChain.get(0);
+        Module frameGen = mModuleManager.getActiveFrameGenModule();
+        List<Module> chain = mModuleManager.getEnabledChain();
+        Module modActive = chain.isEmpty() ? null : chain.get(0);
 
-        if (active == null) {
+        boolean hasFg   = (frameGen != null && frameGen.isEnabled()
+			&& !frameGen.getParamDefs().isEmpty());
+        boolean hasMod  = (modActive != null && !modActive.getParamDefs().isEmpty());
+
+        if (!hasFg && !hasMod) {
             mTvParamsTitle.setText("Parámetros");
-            TextView empty = Ui.text(this, "Activa un filtro para ver sus parámetros.",
+            TextView empty = Ui.text(this, "Activa un filtro o un framegen para ver sus parámetros.",
                                      13, Ui.TEXT_TERTIARY, false);
             empty.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams emptyLp = Ui.lp(MP, Ui.dp(this, 80));
@@ -417,23 +420,34 @@ public class MainActivity extends Activity {
             return;
         }
 
-        Map<String, Module.ParamDef> defs = active.getParamDefs();
-
-        if (defs.isEmpty()) {
-            mTvParamsTitle.setText(active.getName() + " — sin parámetros");
-            TextView empty = Ui.text(this, "Este filtro no expone parámetros configurables.",
-                                     13, Ui.TEXT_TERTIARY, false);
-            empty.setGravity(Gravity.CENTER);
-            LinearLayout.LayoutParams emptyLp = Ui.lp(MP, Ui.dp(this, 80));
-            mParamsList.addView(empty, emptyLp);
-            return;
+        if (hasFg && hasMod) {
+            mTvParamsTitle.setText("Parámetros");
+        } else if (hasFg) {
+            mTvParamsTitle.setText(frameGen.getName());
+        } else {
+            mTvParamsTitle.setText(modActive.getName());
         }
 
-        mTvParamsTitle.setText(active.getName());
-
-        for (Map.Entry<String, Module.ParamDef> entry : defs.entrySet()) {
-            mParamsList.addView(buildParamRow(active, entry.getKey(), entry.getValue()));
+        if (hasFg) {
+            mParamsList.addView(sectionLabel("FRAMEGEN · " + frameGen.getName()));
+            for (Map.Entry<String, Module.ParamDef> entry : frameGen.getParamDefs().entrySet()) {
+                mParamsList.addView(buildParamRow(frameGen, entry.getKey(), entry.getValue()));
+            }
         }
+
+        if (hasMod) {
+            mParamsList.addView(sectionLabel("MOD · " + modActive.getName()));
+            for (Map.Entry<String, Module.ParamDef> entry : modActive.getParamDefs().entrySet()) {
+                mParamsList.addView(buildParamRow(modActive, entry.getKey(), entry.getValue()));
+            }
+        }
+    }
+
+    private TextView sectionLabel(String s) {
+        TextView tv = Ui.text(this, s, 10, Ui.TEXT_TERTIARY, true);
+        tv.setLetterSpacing(0.15f);
+        tv.setPadding(Ui.dp(this, 2), Ui.dp(this, 10), Ui.dp(this, 2), Ui.dp(this, 4));
+        return tv;
     }
 
     private View buildParamRow(final Module module,
@@ -475,9 +489,6 @@ public class MainActivity extends Activity {
         etValue.setGravity(Gravity.CENTER);
         etValue.setBackground(Ui.roundRectStroke(Ui.BG_ELEV, Ui.DIVIDER, this, 10, 1f));
         etValue.setPadding(Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8), Ui.dp(this, 6));
-
-        etValue.setBackgroundDrawable(
-            Ui.roundRectStroke(Ui.BG_ELEV, Ui.DIVIDER, this, 10, 1f));
 
         LinearLayout.LayoutParams etLp = Ui.lp(0, Ui.dp(this, 40), 1f);
         etLp.leftMargin  = Ui.dp(this, 6);
@@ -666,9 +677,6 @@ public class MainActivity extends Activity {
         mBtnCapture.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { onCaptureBtnClicked(); }
             });
-        mBtnCapture.setOnLongClickListener(new View.OnLongClickListener() {
-                @Override public boolean onLongClick(View v) { toggleFrameGenMode(); return true; }
-            });
         mBtnArea.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { openCaptureAreaSelector(); }
             });
@@ -746,7 +754,11 @@ public class MainActivity extends Activity {
                                 mPreviewRenderer = new GlRenderer();
                                 mPreviewGlReady  = mPreviewRenderer.init(holder);
                                 if (mPreviewGlReady) {
+                                    // Subimos el bitmap al slot principal (modo normal)
                                     mPreviewRenderer.uploadBitmap(buildPreviewTestBitmap(0));
+                                    // Y subimos A y C a los slots 0 y 1 para el modo 3 franjas
+                                    mPreviewRenderer.uploadToGenSlot(0, buildPreviewTestBitmap(0));
+                                    mPreviewRenderer.uploadToGenSlot(1, buildPreviewTestBitmap(1));
                                     refreshPreviewShaderLocked();
                                     startPreviewLoop();
                                 }
@@ -793,8 +805,11 @@ public class MainActivity extends Activity {
         runOnUiThread(new Runnable() {
                 @Override public void run() {
                     if (mTvPreviewHint != null) {
+                        Module fg = mModuleManager.getActiveFrameGenModule();
+                        boolean fgOn = (fg != null && fg.isEnabled());
+                        boolean modOn = (active != null && mPreviewShader != null);
                         mTvPreviewHint.setVisibility(
-                            (active != null && mPreviewShader != null) ? View.GONE : View.VISIBLE);
+                            (fgOn || modOn) ? View.GONE : View.VISIBLE);
                     }
                 }
             });
@@ -899,7 +914,6 @@ public class MainActivity extends Activity {
         }
         boolean fpsOverlay = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
             .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
-        Log.d(TAG, "launchCaptureService: FPS pref=" + fpsOverlay);
         svc.putExtra(CaptureService.EXTRA_FPS_OVERLAY, fpsOverlay);
 
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc); else startService(svc);
@@ -910,14 +924,6 @@ public class MainActivity extends Activity {
         stopService(new Intent(this, CaptureService.class));
         setState(CaptureState.IDLE);
         CaptureService.setModuleManager(null);
-    }
-
-    private void toggleFrameGenMode() {
-        mFrameGenMode = !mFrameGenMode;
-        CaptureApi api = CaptureService.getCaptureApi();
-        if (api != null) api.setFrameGenMode(mFrameGenMode);
-        Toast.makeText(this, "Frame-gen: " + (mFrameGenMode ? "ON" : "OFF"),
-                       Toast.LENGTH_SHORT).show();
     }
 
     private void importModule() {
@@ -1003,7 +1009,6 @@ public class MainActivity extends Activity {
                 if (resultCode == RESULT_OK) {
                     String installedName = data != null
                         ? data.getStringExtra(ShaderStoreActivity.RESULT_EXTRA_NAME) : null;
-                    // Reload sólo cuando volvemos de la tienda
                     mModuleManager.reload();
                     Toast.makeText(this,
                                    installedName != null ? "Shader instalado: " + installedName
@@ -1016,15 +1021,12 @@ public class MainActivity extends Activity {
                 boolean fpsEnabled = getSharedPreferences(
                     FiltersActivity.PREFS_NAME, MODE_PRIVATE)
                     .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
-                Log.d(TAG, "onActivityResult REQ_FILTERS: FPS pref=" + fpsEnabled
-                      + " mState=" + mState);
                 if (mState == CaptureState.PROJECTING) {
                     Intent fpsBroadcast = new Intent(CaptureService.ACTION_FPS_OVERLAY);
                     fpsBroadcast.setPackage(getPackageName());
                     fpsBroadcast.putExtra(CaptureService.EXTRA_FPS_ENABLED, fpsEnabled);
                     sendBroadcast(fpsBroadcast);
                 }
-                // Reload sólo cuando volvemos de Filters
                 mModuleManager.reload();
                 refreshPreviewForActiveModuleChange();
                 updateStatusCard();
