@@ -35,16 +35,16 @@
         </activity>
 
         <activity
-            android:name=".FiltersActivity"
+            android:name=".MyFiltersActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Material.NoActionBar" />
 
-        <activity android:name=".CaptureAreaActivity" />
-        <activity android:name=".OverlayPositionActivity" />
-        <activity android:name=".ShaderStoreActivity" />
+        <activity android:name=".CropActivity" />
+        <activity android:name=".MoveOverlayActivity" />
+        <activity android:name=".StoreActivity" />
 
         <activity
-            android:name=".FpsPositionActivity"
+            android:name=".MoveFpsActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />

@@ -37,43 +37,43 @@ package com.Lexus2025.demeter;
 
 import android.graphics.Bitmap;
 
-public class CaptureApi {
+public class FramePipe {
 
-    private TargetRenderer mRenderer;
-    private ModuleManager mModuleManager;
+    private FrameSink mSink;
+    private Mods mMods;
 
-    public CaptureApi(TargetRenderer renderer) {
-        mRenderer = renderer;
+    public FramePipe(FrameSink sink) {
+        mSink = sink;
     }
 
-    public void setRenderer(TargetRenderer renderer) {
-        mRenderer = renderer;
+    public void setSink(FrameSink sink) {
+        mSink = sink;
     }
 
-    public void setModuleManager(ModuleManager moduleManager) {
-        mModuleManager = moduleManager;
-        if (mRenderer != null) {
-            mRenderer.setModuleManager(moduleManager);
+    public void setMods(Mods mods) {
+        mMods = mods;
+        if (mSink != null) {
+            mSink.setMods(mods);
         }
     }
 
     public void setTestMode(boolean testMode) {
-        if (mRenderer != null) mRenderer.setTestMode(testMode);
+        if (mSink != null) mSink.setTestMode(testMode);
     }
 
-    public void setFrameGenGeneration(int generation) {
-        if (mRenderer != null) mRenderer.setFrameGenGeneration(generation);
+    public void setFgVersion(int version) {
+        if (mSink != null) mSink.setFgVersion(version);
     }
 
     public void sendFrame(Bitmap frame) {
-        if (mRenderer != null) mRenderer.receiveFrame(frame);
+        if (mSink != null) mSink.receiveFrame(frame);
     }
 
     public float getFps() {
-        return mRenderer != null ? mRenderer.getFps() : 0f;
+        return mSink != null ? mSink.getFps() : 0f;
     }
 
     public void setFpsOverlay(boolean enabled) {
-        if (mRenderer != null) mRenderer.setFpsOverlay(enabled);
+        if (mSink != null) mSink.setFpsOverlay(enabled);
     }
 }

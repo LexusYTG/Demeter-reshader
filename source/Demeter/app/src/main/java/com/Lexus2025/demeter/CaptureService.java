@@ -77,14 +77,14 @@ public class CaptureService extends Service {
     public static final int FPS_OVERLAY_HEIGHT_DP = 36;
     private static final int FPS_OVERLAY_MARGIN_DP = 8;
 
-    private static CaptureApi     sCaptureApi;
-    private static ModuleManager  sModuleManager;
+    private static FramePipe  sPipe;
+    private static Mods       sMods;
 
-    public static void setModuleManager(ModuleManager mgr) {
-        sModuleManager = mgr;
-        if (sCaptureApi != null) sCaptureApi.setModuleManager(mgr);
+    public static void setMods(Mods mgr) {
+        sMods = mgr;
+        if (sPipe != null) sPipe.setMods(mgr);
     }
-    public static CaptureApi getCaptureApi() { return sCaptureApi; }
+    public static FramePipe getPipe() { return sPipe; }
 
     private MediaProjection   mProjection;
     private VirtualDisplay    mVirtualDisplay;
@@ -94,8 +94,8 @@ public class CaptureService extends Service {
     private Handler           mMainHandler;
     private WindowManager     mWindowManager;
     private SurfaceView       mOverlaySurface;
-    private TargetRenderer    mRenderer;
-    private CaptureApi        mCaptureApi;
+    private FrameSink         mSink;
+    private FramePipe         mPipe;
     private int               mScreenWidth;
     private int               mScreenHeight;
     private int               mScreenDensity;
@@ -128,6 +128,7 @@ public class CaptureService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        Lang.init(this);
         mMainHandler = new Handler();
         registerStopReceiver();
         registerFpsOverlayReceiver();
@@ -154,8 +155,8 @@ public class CaptureService extends Service {
                 if (!ACTION_FPS_OVERLAY.equals(intent.getAction())) return;
 
                 boolean enabled = getSharedPreferences(
-                    FiltersActivity.PREFS_NAME, MODE_PRIVATE)
-                    .getBoolean(FiltersActivity.PREF_FPS_OVERLAY,
+                    MyFiltersActivity.PREFS_NAME, MODE_PRIVATE)
+                    .getBoolean(MyFiltersActivity.PREF_FPS_OVERLAY,
                                 intent.getBooleanExtra(EXTRA_FPS_ENABLED, false));
 
                 if (enabled) showFpsOverlay();
@@ -173,10 +174,10 @@ public class CaptureService extends Service {
                 if (!ACTION_FRAMEGEN_MODE.equals(intent.getAction())) return;
 
                 int mode = intent.getIntExtra(EXTRA_FRAMEGEN_MODE,
-                                              getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
-                                              .getInt(FiltersActivity.PREF_FRAMEGEN_MODE, 2));
+                                              getSharedPreferences(MyFiltersActivity.PREFS_NAME, MODE_PRIVATE)
+                                              .getInt(MyFiltersActivity.PREF_FRAMEGEN_MODE, 2));
                 Log.d(TAG, "FgMode broadcast: mode=" + mode);
-                if (mCaptureApi != null) mCaptureApi.setFrameGenGeneration(mode);
+                if (mPipe != null) mPipe.setFgVersion(mode);
             }
         };
         IntentFilter filter = new IntentFilter(ACTION_FRAMEGEN_MODE);
@@ -185,7 +186,7 @@ public class CaptureService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Notification notification = buildNotification();
+        Notification notification = makeNotification();
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(NOTIF_ID, notification,
                             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
@@ -206,18 +207,18 @@ public class CaptureService extends Service {
         mResultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0);
         mResultData = intent.getParcelableExtra(EXTRA_RESULT_DATA);
 
-        mCaptureRect = rectFromIntent(intent,
-                                      EXTRA_CAPTURE_LEFT, EXTRA_CAPTURE_TOP,
-                                      EXTRA_CAPTURE_RIGHT, EXTRA_CAPTURE_BOTTOM,
-                                      mScreenWidth, mScreenHeight);
+        mCaptureRect = readRect(intent,
+								EXTRA_CAPTURE_LEFT, EXTRA_CAPTURE_TOP,
+								EXTRA_CAPTURE_RIGHT, EXTRA_CAPTURE_BOTTOM,
+								mScreenWidth, mScreenHeight);
 
         if (mAdaptive) {
             mOverlayRect = new Rect(mCaptureRect);
         } else {
-            mOverlayRect = rectFromIntent(intent,
-                                          EXTRA_OVERLAY_LEFT, EXTRA_OVERLAY_TOP,
-                                          EXTRA_OVERLAY_RIGHT, EXTRA_OVERLAY_BOTTOM,
-                                          mScreenWidth, mScreenHeight);
+            mOverlayRect = readRect(intent,
+									EXTRA_OVERLAY_LEFT, EXTRA_OVERLAY_TOP,
+									EXTRA_OVERLAY_RIGHT, EXTRA_OVERLAY_BOTTOM,
+									mScreenWidth, mScreenHeight);
         }
 
         mBaseCaptureRect  = new Rect(mCaptureRect);
@@ -226,11 +227,11 @@ public class CaptureService extends Service {
         mBaseScreenHeight = mScreenHeight;
 
         registerDisplayListener();
-        setupOverlay();
-        setupCapture(mResultCode, mResultData);
+        createOverlay();
+        createCapture(mResultCode, mResultData);
 
-        boolean wantFps = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
-            .getBoolean(FiltersActivity.PREF_FPS_OVERLAY,
+        boolean wantFps = getSharedPreferences(MyFiltersActivity.PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(MyFiltersActivity.PREF_FPS_OVERLAY,
                         intent.getBooleanExtra(EXTRA_FPS_OVERLAY, false));
         if (wantFps) showFpsOverlay();
 
@@ -246,9 +247,9 @@ public class CaptureService extends Service {
         if (mFpsParams == null) return;
 
         SharedPreferences prefs = getSharedPreferences(
-            FiltersActivity.PREFS_NAME, MODE_PRIVATE);
-        int posX = prefs.getInt(FpsPositionActivity.PREF_POS_X, -1);
-        int posY = prefs.getInt(FpsPositionActivity.PREF_POS_Y, -1);
+            MyFiltersActivity.PREFS_NAME, MODE_PRIVATE);
+        int posX = prefs.getInt(MoveFpsActivity.PREF_POS_X, -1);
+        int posY = prefs.getInt(MoveFpsActivity.PREF_POS_Y, -1);
 
         if (posX >= 0 && posY >= 0) {
             mFpsParams.gravity = Gravity.TOP | Gravity.LEFT;
@@ -271,7 +272,7 @@ public class CaptureService extends Service {
         }
     }
 
-    private void setupFpsOverlay() {
+    private void createFpsOverlay() {
         if (mFpsView != null) return;
 
         int overlayType = Build.VERSION.SDK_INT >= 26
@@ -294,7 +295,7 @@ public class CaptureService extends Service {
         applyFpsPosition();
 
         mFpsView = new TextView(this);
-        mFpsView.setText("-- FPS");
+        mFpsView.setText(Lang.get(103));
         mFpsView.setTextColor(Color.WHITE);
         mFpsView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
         mFpsView.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
@@ -321,7 +322,7 @@ public class CaptureService extends Service {
             return;
         }
 
-        setupFpsOverlay();
+        createFpsOverlay();
         try {
             mWindowManager.addView(mFpsView, mFpsParams);
             mFpsOverlayVisible = true;
@@ -347,11 +348,11 @@ public class CaptureService extends Service {
             @Override
             public void run() {
                 if (!mFpsOverlayVisible || mFpsView == null) return;
-                CaptureApi api = sCaptureApi;
+                FramePipe api = sPipe;
                 if (api != null) {
                     float fps = api.getFps();
-                    if (fps < 0f) mFpsView.setText("-- FPS");
-                    else          mFpsView.setText(String.format("%.0f FPS", fps));
+                    if (fps < 0f) mFpsView.setText(Lang.get(103));
+                    else          mFpsView.setText(Lang.f(104, fps));
                 }
                 mMainHandler.postDelayed(this, 500);
             }
@@ -366,9 +367,9 @@ public class CaptureService extends Service {
         }
     }
 
-    private Rect rectFromIntent(Intent intent,
-                                String kL, String kT, String kR, String kB,
-                                int maxW, int maxH) {
+    private Rect readRect(Intent intent,
+						  String kL, String kT, String kR, String kB,
+						  int maxW, int maxH) {
         if (!intent.hasExtra(kL) && !intent.hasExtra(kR)) {
             return new Rect(0, 0, maxW, maxH);
         }
@@ -399,7 +400,7 @@ public class CaptureService extends Service {
                 DisplayMetrics dm = new DisplayMetrics();
                 wm.getDefaultDisplay().getRealMetrics(dm);
                 if (dm.widthPixels != mScreenWidth || dm.heightPixels != mScreenHeight) {
-                    handleRotation();
+                    onRotated();
                 }
             }
         };
@@ -415,7 +416,7 @@ public class CaptureService extends Service {
         mDisplayManager  = null;
     }
 
-    private void setupOverlay() {
+    private void createOverlay() {
         mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         int overlayType = Build.VERSION.SDK_INT >= 26
             ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -442,28 +443,28 @@ public class CaptureService extends Service {
         mOverlaySurface.getHolder().addCallback(new SurfaceHolder.Callback() {
                 @Override
                 public void surfaceCreated(SurfaceHolder holder) {
-                    mRenderer   = new TargetRenderer(CaptureService.this, holder, sModuleManager);
-                    mCaptureApi = new CaptureApi(mRenderer);
-                    mCaptureApi.setModuleManager(sModuleManager);
+                    mSink   = new FrameSink(CaptureService.this, holder, sMods);
+                    mPipe = new FramePipe(mSink);
+                    mPipe.setMods(sMods);
 
-                    int fgMode = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
-                        .getInt(FiltersActivity.PREF_FRAMEGEN_MODE, 2);
-                    mCaptureApi.setFrameGenGeneration(fgMode);
+                    int fgMode = getSharedPreferences(MyFiltersActivity.PREFS_NAME, MODE_PRIVATE)
+                        .getInt(MyFiltersActivity.PREF_FRAMEGEN_MODE, 2);
+                    mPipe.setFgVersion(fgMode);
 
-                    mRenderer.setScaleInfo(mCaptureRect, mOverlayRect);
-                    sCaptureApi = mCaptureApi;
+                    mSink.setScaleInfo(mCaptureRect, mOverlayRect);
+                    sPipe = mPipe;
                 }
                 @Override
                 public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
-                    if (mRenderer != null) {
-                        mRenderer.setHolder(holder);
-                        mRenderer.setScaleInfo(mCaptureRect, mOverlayRect);
+                    if (mSink != null) {
+                        mSink.setHolder(holder);
+                        mSink.setScaleInfo(mCaptureRect, mOverlayRect);
                     }
                 }
                 @Override
                 public void surfaceDestroyed(SurfaceHolder holder) {
-                    if (mRenderer != null) mRenderer.setHolder(null);
-                    sCaptureApi = null;
+                    if (mSink != null) mSink.setHolder(null);
+                    sPipe = null;
                 }
             });
 
@@ -485,7 +486,7 @@ public class CaptureService extends Service {
             });
     }
 
-    private void setupCapture(int resultCode, Intent resultData) {
+    private void createCapture(int resultCode, Intent resultData) {
         mCaptureThread = new HandlerThread("CaptureThread");
         mCaptureThread.start();
         mCaptureHandler = new Handler(mCaptureThread.getLooper());
@@ -500,14 +501,14 @@ public class CaptureService extends Service {
                     try {
                         image = reader.acquireLatestImage();
                         if (image == null) return;
-                        android.graphics.Bitmap bmp = imageToBitmap(image, mCaptureRect);
+                        android.graphics.Bitmap bmp = toBitmap(image, mCaptureRect);
                         if (bmp == null) return;
 
-                        CaptureApi api = sCaptureApi;
+                        FramePipe api = sPipe;
                         if (api != null) {
                             api.sendFrame(bmp);
                         } else {
-                            BitmapPool.release(bmp);
+                            BmpPool.release(bmp);
                         }
                     } catch (IllegalStateException e) {
                         Log.w(TAG, "Buffer inaccesible: " + e.getMessage());
@@ -531,7 +532,7 @@ public class CaptureService extends Service {
             dispFlags, mImageReader.getSurface(), null, null);
     }
 
-    private android.graphics.Bitmap imageToBitmap(Image image, Rect crop) {
+    private android.graphics.Bitmap toBitmap(Image image, Rect crop) {
         Image.Plane plane   = image.getPlanes()[0];
         ByteBuffer  srcBuf  = plane.getBuffer();
         int imgW        = image.getWidth();
@@ -567,20 +568,20 @@ public class CaptureService extends Service {
         }
         mStrippedBuffer.rewind();
 
-        android.graphics.Bitmap bmp = BitmapPool.acquire(cropW, cropH);
+        android.graphics.Bitmap bmp = BmpPool.acquire(cropW, cropH);
         bmp.copyPixelsFromBuffer(mStrippedBuffer);
         return bmp;
     }
 
-    private synchronized void teardownCaptureOnly() {
+    private synchronized void stopCaptureOnly() {
         if (mVirtualDisplay != null) { mVirtualDisplay.release(); mVirtualDisplay = null; }
         if (mImageReader    != null) { mImageReader.close();       mImageReader    = null; }
         if (mCaptureThread  != null) { mCaptureThread.quitSafely(); mCaptureThread = null; }
         mCaptureHandler = null;
     }
 
-    private void handleRotation() {
-        teardownCaptureOnly();
+    private void onRotated() {
+        stopCaptureOnly();
 
         WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         DisplayMetrics metrics = new DisplayMetrics();
@@ -589,13 +590,13 @@ public class CaptureService extends Service {
         mScreenHeight  = metrics.heightPixels;
         mScreenDensity = metrics.densityDpi;
 
-        mCaptureRect = rescaleRect(mBaseCaptureRect, mBaseScreenWidth, mBaseScreenHeight,
-                                   mScreenWidth, mScreenHeight);
+        mCaptureRect = scaleRect(mBaseCaptureRect, mBaseScreenWidth, mBaseScreenHeight,
+								 mScreenWidth, mScreenHeight);
         if (mAdaptive) {
             mOverlayRect = new Rect(mCaptureRect);
         } else {
-            mOverlayRect = rescaleRect(mBaseOverlayRect, mBaseScreenWidth, mBaseScreenHeight,
-                                       mScreenWidth, mScreenHeight);
+            mOverlayRect = scaleRect(mBaseOverlayRect, mBaseScreenWidth, mBaseScreenHeight,
+									 mScreenWidth, mScreenHeight);
         }
 
         if (mWindowManager != null && mOverlaySurface != null) {
@@ -612,13 +613,13 @@ public class CaptureService extends Service {
             }
         }
 
-        if (mRenderer != null) mRenderer.setScaleInfo(mCaptureRect, mOverlayRect);
+        if (mSink != null) mSink.setScaleInfo(mCaptureRect, mOverlayRect);
 
-        BitmapPool.clear();
-        setupCapture(mResultCode, mResultData);
+        BmpPool.clear();
+        createCapture(mResultCode, mResultData);
     }
 
-    private Rect rescaleRect(Rect base, int fromW, int fromH, int toW, int toH) {
+    private Rect scaleRect(Rect base, int fromW, int fromH, int toW, int toH) {
         if (base == null || fromW == 0 || fromH == 0) return new Rect(0, 0, toW, toH);
         if (base.left == 0 && base.top == 0 && base.right == fromW && base.bottom == fromH) {
             return new Rect(0, 0, toW, toH);
@@ -644,29 +645,29 @@ public class CaptureService extends Service {
         }
         hideFpsOverlay();
         unregisterDisplayListener();
-        teardownCaptureOnly();
+        stopCaptureOnly();
         if (mProjection    != null) { mProjection.stop(); mProjection = null; }
         if (mWindowManager != null && mOverlaySurface != null) {
             try { mWindowManager.removeView(mOverlaySurface); } catch (Exception ignored) {}
         }
-        if (mRenderer != null) { mRenderer.release(); mRenderer = null; }
+        if (mSink != null) { mSink.release(); mSink = null; }
 
         mStrippedBuffer = null;
         mRowScratch     = null;
 
-        BitmapPool.clear();
+        BmpPool.clear();
 
-        sCaptureApi = null;
+        sPipe = null;
         super.onDestroy();
     }
 
     @Override
     public IBinder onBind(Intent intent) { return null; }
 
-    private Notification buildNotification() {
+    private Notification makeNotification() {
         if (Build.VERSION.SDK_INT >= 26) {
             android.app.NotificationChannel ch = new android.app.NotificationChannel(
-                "demeter", "Demeter", NotificationManager.IMPORTANCE_LOW);
+                "demeter", Lang.get(100), NotificationManager.IMPORTANCE_LOW);
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
                 .createNotificationChannel(ch);
         }
@@ -679,11 +680,11 @@ public class CaptureService extends Service {
         PendingIntent stopPi = PendingIntent.getBroadcast(this, 0, stopIntent, piFlags);
 
         Notification.Builder builder = new Notification.Builder(this)
-            .setContentTitle("Demeter")
-            .setContentText("Captura activa")
+            .setContentTitle(Lang.get(100))
+            .setContentText(Lang.get(101))
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_delete, "Detener", stopPi);
+            .addAction(android.R.drawable.ic_delete, Lang.get(102), stopPi);
 
         if (Build.VERSION.SDK_INT >= 26) {
             builder.setChannelId("demeter");

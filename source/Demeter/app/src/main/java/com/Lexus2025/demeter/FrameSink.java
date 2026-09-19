@@ -55,8 +55,8 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-public class TargetRenderer {
-    private static final String TAG = "TargetRenderer";
+public class FrameSink {
+    private static final String TAG = "FrameSink";
     private static final long FRAME_DELAY_MS = 16;
 
     private static final int FG_FAKE_SLOT     = 5;
@@ -76,8 +76,8 @@ public class TargetRenderer {
     private final Context mContext;
 
     private volatile SurfaceHolder mHolder;
-    private volatile ModuleManager mModuleManager;
-    private GlRenderer mGlRenderer;
+    private volatile Mods mMods;
+    private GlPainter mPainter;
     private boolean mGlReady = false;
 
     private HandlerThread mGlThread;
@@ -96,7 +96,7 @@ public class TargetRenderer {
     private volatile long mDisplayIntervalNs = DEFAULT_DISPLAY_INTERVAL_NS;
 
     private volatile boolean mFrameGenMode = false;
-    private volatile int     mFgGeneration = 2;
+    private volatile int     mFgVersion = 2;
 
     private int mG2SlotA = -1;
     private int mG2SlotC = -1;
@@ -139,37 +139,37 @@ public class TargetRenderer {
         @Override
         public void run() {
             if (!mRenderLoopRunning) return;
-            if (mHolder != null && mGlReady && mGlRenderer != null) {
-                drawCurrentFrame(null);
-                recordFrame();
+            if (mHolder != null && mGlReady && mPainter != null) {
+                drawNow(null);
+                tickFps();
             }
             mGlHandler.postDelayed(this, FRAME_DELAY_MS * 2);
         }
     };
 
-    private void drawCurrentFrame(Bitmap frameIfNew) {
-        List<Module> chain = (mModuleManager != null)
-            ? mModuleManager.getEnabledChain()
-            : new ArrayList<Module>();
+    private void drawNow(Bitmap frameIfNew) {
+        List<Mod> chain = (mMods != null)
+            ? mMods.getEnabledChain()
+            : new ArrayList<Mod>();
 
         if (frameIfNew != null) {
-            if (!mGlRenderer.uploadToGenSlot(CHAIN_INPUT_SLOT, frameIfNew)) return;
+            if (!mPainter.uploadSlot(CHAIN_INPUT_SLOT, frameIfNew)) return;
         }
 
         if (chain.isEmpty()) {
-            mGlRenderer.drawGenSlot(CHAIN_INPUT_SLOT, null, null);
+            mPainter.drawSlot(CHAIN_INPUT_SLOT, null, null);
             return;
         }
 
         if (chain.size() == 1) {
-            Module m = chain.get(0);
-            ShaderFilter shader = m.getShaderFilter();
+            Mod m = chain.get(0);
+            GlProgram shader = m.getGlProgram();
             if (shader == null) {
-                mGlRenderer.drawGenSlot(CHAIN_INPUT_SLOT, null, null);
+                mPainter.drawSlot(CHAIN_INPUT_SLOT, null, null);
                 return;
             }
-            Map<String, Float> params = buildParams(m);
-            mGlRenderer.drawGenSlot(CHAIN_INPUT_SLOT, shader, params);
+            Map<String, Float> params = paramsFor(m);
+            mPainter.drawSlot(CHAIN_INPUT_SLOT, shader, params);
             return;
         }
 
@@ -177,11 +177,11 @@ public class TargetRenderer {
         int dst = CHAIN_FIRST_OUT;
         boolean anyApplied = false;
 
-        for (Module m : chain) {
-            ShaderFilter shader = m.getShaderFilter();
+        for (Mod m : chain) {
+            GlProgram shader = m.getGlProgram();
             if (shader == null) continue;
-            Map<String, Float> params = buildParams(m);
-            if (!mGlRenderer.drawGenSlotToTexture(src, dst, shader, params)) {
+            Map<String, Float> params = paramsFor(m);
+            if (!mPainter.drawSlotInto(src, dst, shader, params)) {
                 Log.w(TAG, "Chain: falló " + m.getName());
                 break;
             }
@@ -191,11 +191,11 @@ public class TargetRenderer {
             anyApplied = true;
         }
 
-        if (anyApplied) mGlRenderer.drawGenSlot(src, null, null);
-        else           mGlRenderer.drawGenSlot(CHAIN_INPUT_SLOT, null, null);
+        if (anyApplied) mPainter.drawSlot(src, null, null);
+        else           mPainter.drawSlot(CHAIN_INPUT_SLOT, null, null);
     }
 
-    private Map<String, Float> buildParams(Module m) {
+    private Map<String, Float> paramsFor(Mod m) {
         mParamsCache.clear();
         mParamsCache.putAll(m.getParams());
         if (m.getParamDefs().containsKey("uTime")) {
@@ -206,10 +206,10 @@ public class TargetRenderer {
 
     private final Map<String, Float> mParamsCache = new HashMap<String, Float>();
 
-    public TargetRenderer(Context context, SurfaceHolder holder, ModuleManager moduleManager) {
+    public FrameSink(Context context, SurfaceHolder holder, Mods mods) {
         mContext = context.getApplicationContext();
         mHolder = holder;
-        mModuleManager = moduleManager;
+        mMods = mods;
 
         try {
             WindowManager wm = (WindowManager) mContext.getSystemService(Context.WINDOW_SERVICE);
@@ -231,8 +231,8 @@ public class TargetRenderer {
         mGlHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    mGlRenderer = new GlRenderer();
-                    mGlReady = mGlRenderer.init(mHolder);
+                    mPainter = new GlPainter();
+                    mGlReady = mPainter.init(mHolder);
                 }
             });
     }
@@ -240,16 +240,16 @@ public class TargetRenderer {
     public float getFps() { return mFps; }
     public void setFpsOverlay(boolean enabled) { mFpsOverlay = enabled; }
 
-    public void setFrameGenGeneration(final int generation) {
+    public void setFgVersion(final int version) {
         mGlHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    if (generation == mFgGeneration) return;
-                    Log.d(TAG, "FrameGen: cambio G" + mFgGeneration + " → G" + generation);
+                    if (version == mFgVersion) return;
+                    Log.d(TAG, "FrameGen: cambio G" + mFgVersion + " → G" + version);
                     boolean wasActive = mFrameGenMode;
-                    stopFrameGenAll();
+                    stopAllGen();
                     mFrameGenMode = false;
-                    mFgGeneration = generation;
+                    mFgVersion = version;
                     mG3WarnedTypeMismatch = false;
                     if (wasActive) {
 
@@ -258,7 +258,7 @@ public class TargetRenderer {
             });
     }
 
-    private void recordFrame() {
+    private void tickFps() {
         long now = System.nanoTime();
         mFrameTimesNs[mFrameTimeIdx] = now;
         mFrameTimeIdx = (mFrameTimeIdx + 1) % FPS_WINDOW;
@@ -309,17 +309,17 @@ public class TargetRenderer {
                 mTestLoopRunning = false;
                 return;
             }
-            receiveFrame(generateTestFrame());
+            receiveFrame(testFrame());
             mGlHandler.postDelayed(this, FRAME_DELAY_MS);
         }
     };
 
-    private Bitmap generateTestFrame() {
+    private Bitmap testFrame() {
         Rect frameRect = mHolder.getSurfaceFrame();
         int w = frameRect.width()  > 0 ? frameRect.width()  : 720;
         int h = frameRect.height() > 0 ? frameRect.height() : 1280;
 
-        Bitmap bmp = BitmapPool.acquire(w, h);
+        Bitmap bmp = BmpPool.acquire(w, h);
         Canvas canvas = new Canvas(bmp);
         canvas.drawColor(Color.BLACK);
 
@@ -333,14 +333,14 @@ public class TargetRenderer {
         return bmp;
     }
 
-    private boolean isFramegenType(Module.Type t) {
-        return t == Module.Type.FRAMEGEN || t == Module.Type.FRAMEGEN_G3;
+    private boolean isFrameGen(Mod.Type t) {
+        return t == Mod.Type.FRAMEGEN || t == Mod.Type.FRAMEGEN_G3;
     }
 
-    private boolean shaderCompatibleWithGeneration(Module fg) {
+    private boolean shaderFitsVersion(Mod fg) {
         if (fg == null) return false;
-        boolean isG3Shader = (fg.getType() == Module.Type.FRAMEGEN_G3);
-        if (mFgGeneration == 3) {
+        boolean isG3Shader = (fg.getType() == Mod.Type.FRAMEGEN_G3);
+        if (mFgVersion == 3) {
             if (!isG3Shader) {
                 if (!mG3WarnedTypeMismatch) {
                     Log.w(TAG, "Modo G3 pero shader '" + fg.getName()
@@ -352,7 +352,7 @@ public class TargetRenderer {
         } else {
             if (isG3Shader) {
                 if (!mG3WarnedTypeMismatch) {
-                    Log.w(TAG, "Modo G" + mFgGeneration + " pero shader '" + fg.getName()
+                    Log.w(TAG, "Modo G" + mFgVersion + " pero shader '" + fg.getName()
                           + "' es tipo FG-G3. Framegen inactivo.");
                     mG3WarnedTypeMismatch = true;
                 }
@@ -367,35 +367,35 @@ public class TargetRenderer {
         mGlHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    if (mHolder == null || !mGlReady || mGlRenderer == null) {
-                        BitmapPool.release(frame);
+                    if (mHolder == null || !mGlReady || mPainter == null) {
+                        BmpPool.release(frame);
                         return;
                     }
-                    syncFrameGenMode();
+                    syncGen();
                     if (!mFrameGenMode) {
-                        receiveFrameNormal(frame);
+                        frameNormal(frame);
                         return;
                     }
-                    if (mFgGeneration == 3) {
-                        receiveFrameGenG3(frame);
-                    } else if (mFgGeneration == 1) {
-                        receiveFrameGenG1(frame);
+                    if (mFgVersion == 3) {
+                        frameG3(frame);
+                    } else if (mFgVersion == 1) {
+                        frameG1(frame);
                     } else {
-                        receiveFrameGenG2(frame);
+                        frameG2(frame);
                     }
                 }
             });
     }
 
-    private void receiveFrameNormal(Bitmap frame) {
-        drawCurrentFrame(frame);
-        recordFrame();
+    private void frameNormal(Bitmap frame) {
+        drawNow(frame);
+        tickFps();
 
-        if (hasAnimatedModule()) startNormalRenderLoopIfNeeded();
-        else                    stopNormalRenderLoop();
+        if (hasAnimatedMod()) startNormalLoop();
+        else                    stopNormalLoop();
     }
 
-    private void receiveFrameGenG2(Bitmap frame) {
+    private void frameG2(Bitmap frame) {
         long now = System.nanoTime();
         if (mLastInputNs > 0L) {
             long delta = now - mLastInputNs;
@@ -410,8 +410,8 @@ public class TargetRenderer {
         else if (mG2SlotA < 0)    freeSlot = (mG2SlotC + 1) % 3;
         else                      freeSlot = 3 - mG2SlotA - mG2SlotC;
 
-        if (mGlRenderer == null) { BitmapPool.release(frame); return; }
-        mGlRenderer.uploadToGenSlot(freeSlot, frame);
+        if (mPainter == null) { BmpPool.release(frame); return; }
+        mPainter.uploadSlot(freeSlot, frame);
 
         mG2SlotA = mG2SlotC;
         mG2SlotC = freeSlot;
@@ -419,15 +419,15 @@ public class TargetRenderer {
 
         if (mG2SlotA >= 0 && !mG2GenRunning) {
             mG2GenRunning = true;
-            mGlHandler.post(mG2GenerationRunnable);
+            mGlHandler.post(mG2GenRunnable);
         }
     }
 
-    private final Runnable mG2GenerationRunnable = new Runnable() {
+    private final Runnable mG2GenRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!mFrameGenMode || mFgGeneration != 2
-                || !mGlReady || mHolder == null || mGlRenderer == null) {
+            if (!mFrameGenMode || mFgVersion != 2
+                || !mGlReady || mHolder == null || mPainter == null) {
                 mG2GenRunning = false;
                 return;
             }
@@ -436,21 +436,21 @@ public class TargetRenderer {
             final int c = mG2SlotC;
             if (a < 0 || c < 0) { mG2GenRunning = false; return; }
 
-            ModuleManager mm = mModuleManager;
-            Module fgModule = (mm != null) ? mm.getActiveFrameGenModule() : null;
+            Mods mm = mMods;
+            Mod fgMod = (mm != null) ? mm.getActiveFgMod() : null;
 
             float mix = 0.5f;
-            if (fgModule != null) {
-                Float mv = fgModule.getParams().get("uMix");
+            if (fgMod != null) {
+                Float mv = fgMod.getParams().get("uMix");
                 if (mv != null) mix = mv;
             }
 
-            ShaderFilter fgShader = null;
+            GlProgram fgShader = null;
             Map<String, Float> fgParams = null;
-            if (fgModule != null && fgModule.isEnabled()) {
-                fgShader = fgModule.getShaderFilter();
+            if (fgMod != null && fgMod.isEnabled()) {
+                fgShader = fgMod.getGlProgram();
                 if (fgShader != null) {
-                    fgParams = new HashMap<String, Float>(fgModule.getParams());
+                    fgParams = new HashMap<String, Float>(fgMod.getParams());
                     fgParams.put("uTime", (System.currentTimeMillis() - mStartTimeMs) / 1000f);
                     fgParams.put("uFrameGen", 1f);
                 }
@@ -458,10 +458,10 @@ public class TargetRenderer {
 
             boolean ok;
             if (fgShader != null) {
-                ok = mGlRenderer.drawGenBlendShaderToTexture(
+                ok = mPainter.blendShaderInto(
                     a, c, mix, fgShader, fgParams, FG_FAKE_SLOT);
             } else {
-                ok = mGlRenderer.drawGenBlendToTexture(a, c, mix, FG_FAKE_SLOT);
+                ok = mPainter.blendInto(a, c, mix, FG_FAKE_SLOT);
             }
 
             mG2FakeReady = ok;
@@ -474,11 +474,11 @@ public class TargetRenderer {
         }
     };
 
-    private final Runnable mG2PresentationRunnable = new Runnable() {
+    private final Runnable mG2PresRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!mFrameGenMode || mFgGeneration != 2
-                || !mGlReady || mHolder == null || mGlRenderer == null) {
+            if (!mFrameGenMode || mFgVersion != 2
+                || !mGlReady || mHolder == null || mPainter == null) {
                 mG2PresRunning = false;
                 return;
             }
@@ -494,8 +494,8 @@ public class TargetRenderer {
             }
 
             if (slotToShow >= 0) {
-                mGlRenderer.drawGenSlot(slotToShow, null, null);
-                recordFrame();
+                mPainter.drawSlot(slotToShow, null, null);
+                tickFps();
                 mG2UnderrunStreak = 0;
             } else {
                 mG2UnderrunStreak++;
@@ -504,11 +504,11 @@ public class TargetRenderer {
                 }
             }
 
-            mGlHandler.postDelayed(this, computePresentationDelayMs());
+            mGlHandler.postDelayed(this, presentDelayMs());
         }
     };
 
-    private void receiveFrameGenG1(Bitmap frame) {
+    private void frameG1(Bitmap frame) {
         long now = System.nanoTime();
         if (mLastInputNs > 0L) {
             long delta = now - mLastInputNs;
@@ -523,23 +523,23 @@ public class TargetRenderer {
         else if (mG1SlotA < 0)    freeSlot = (mG1SlotC + 1) % 3;
         else                      freeSlot = 3 - mG1SlotA - mG1SlotC;
 
-        if (mGlRenderer == null) { BitmapPool.release(frame); return; }
-        mGlRenderer.uploadToGenSlot(freeSlot, frame);
+        if (mPainter == null) { BmpPool.release(frame); return; }
+        mPainter.uploadSlot(freeSlot, frame);
 
         mG1SlotA = mG1SlotC;
         mG1SlotC = freeSlot;
 
         if (mG1SlotA >= 0 && !mG1GenRunning) {
             mG1GenRunning = true;
-            mGlHandler.post(mG1GenerationRunnable);
+            mGlHandler.post(mG1GenRunnable);
         }
     }
 
-    private final Runnable mG1GenerationRunnable = new Runnable() {
+    private final Runnable mG1GenRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!mFrameGenMode || mFgGeneration != 1
-                || !mGlReady || mHolder == null || mGlRenderer == null) {
+            if (!mFrameGenMode || mFgVersion != 1
+                || !mGlReady || mHolder == null || mPainter == null) {
                 mG1GenRunning = false;
                 return;
             }
@@ -550,21 +550,21 @@ public class TargetRenderer {
 
             int fakeSlot = G1_OUT_BASE + ((mG1QueueHead + mG1QueueCount) % G1_OUT_COUNT);
 
-            ModuleManager mm = mModuleManager;
-            Module fgModule = (mm != null) ? mm.getActiveFrameGenModule() : null;
+            Mods mm = mMods;
+            Mod fgMod = (mm != null) ? mm.getActiveFgMod() : null;
 
             float mix = 0.5f;
-            if (fgModule != null) {
-                Float mv = fgModule.getParams().get("uMix");
+            if (fgMod != null) {
+                Float mv = fgMod.getParams().get("uMix");
                 if (mv != null) mix = mv;
             }
 
-            ShaderFilter fgShader = null;
+            GlProgram fgShader = null;
             Map<String, Float> fgParams = null;
-            if (fgModule != null && fgModule.isEnabled()) {
-                fgShader = fgModule.getShaderFilter();
+            if (fgMod != null && fgMod.isEnabled()) {
+                fgShader = fgMod.getGlProgram();
                 if (fgShader != null) {
-                    fgParams = new HashMap<String, Float>(fgModule.getParams());
+                    fgParams = new HashMap<String, Float>(fgMod.getParams());
                     fgParams.put("uTime", (System.currentTimeMillis() - mStartTimeMs) / 1000f);
                     fgParams.put("uFrameGen", 1f);
                 }
@@ -572,16 +572,16 @@ public class TargetRenderer {
 
             boolean ok;
             if (fgShader != null) {
-                ok = mGlRenderer.drawGenBlendShaderToTexture(
+                ok = mPainter.blendShaderInto(
                     a, c, mix, fgShader, fgParams, fakeSlot);
             } else {
-                ok = mGlRenderer.drawGenBlendToTexture(a, c, mix, fakeSlot);
+                ok = mPainter.blendInto(a, c, mix, fakeSlot);
             }
 
             if (ok && mG1QueueCount < G1_QUEUE_SIZE) {
                 int tail = (mG1QueueHead + mG1QueueCount) % G1_QUEUE_SIZE;
                 int realSlot = G1_OUT_BASE + ((tail + 1) % G1_OUT_COUNT);
-                boolean copied = mGlRenderer.drawGenSlotToTexture(c, realSlot, null, null);
+                boolean copied = mPainter.drawSlotInto(c, realSlot, null, null);
                 if (copied) {
                     mG1QueueC[tail]    = realSlot;
                     mG1QueueFake[tail] = fakeSlot;
@@ -599,11 +599,11 @@ public class TargetRenderer {
         }
     };
 
-    private final Runnable mG1PresentationRunnable = new Runnable() {
+    private final Runnable mG1PresRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!mFrameGenMode || mFgGeneration != 1
-                || !mGlReady || mHolder == null || mGlRenderer == null) {
+            if (!mFrameGenMode || mFgVersion != 1
+                || !mGlReady || mHolder == null || mPainter == null) {
                 mG1PresRunning = false;
                 return;
             }
@@ -631,15 +631,15 @@ public class TargetRenderer {
                 mG1QueueCount--;
             }
 
-            mGlRenderer.drawGenSlot(slotToShow, null, null);
-            recordFrame();
+            mPainter.drawSlot(slotToShow, null, null);
+            tickFps();
             mG1UnderrunStreak = 0;
 
-            mGlHandler.postDelayed(this, computePresentationDelayMs());
+            mGlHandler.postDelayed(this, presentDelayMs());
         }
     };
 
-    private void receiveFrameGenG3(Bitmap frameC) {
+    private void frameG3(Bitmap frameC) {
         long now = System.nanoTime();
         if (mLastInputNs > 0L) {
             long delta = now - mLastInputNs;
@@ -649,12 +649,12 @@ public class TargetRenderer {
         }
         mLastInputNs = now;
 
-        if (mGlRenderer == null) { BitmapPool.release(frameC); return; }
+        if (mPainter == null) { BmpPool.release(frameC); return; }
 
-        Bitmap cDs = MotionEstimator.downsample(frameC);
+        Bitmap cDs = Motion.downsample(frameC);
 
         if (mG3SlotA < 0) {
-            mGlRenderer.uploadToGenSlot(mG3SlotNext, frameC);
+            mPainter.uploadSlot(mG3SlotNext, frameC);
             mG3SlotA    = mG3SlotNext;
             mG3SlotNext = (mG3SlotNext == G3_SLOT_A1) ? G3_SLOT_A2 : G3_SLOT_A1;
             if (mG3PrevDs != null) mG3PrevDs.recycle();
@@ -662,25 +662,25 @@ public class TargetRenderer {
             return;
         }
 
-        float dsToOrig = (float) frameC.getWidth() / MotionEstimator.DS_W;
+        float dsToOrig = (float) frameC.getWidth() / Motion.DS_W;
 
-        Bitmap motionMap = MotionEstimator.estimate(mG3PrevDs, cDs, dsToOrig);
+        Bitmap motionMap = Motion.estimate(mG3PrevDs, cDs, dsToOrig);
 
-        mGlRenderer.uploadToGenSlot(G3_MOTION_SLOT, motionMap);
+        mPainter.uploadSlot(G3_MOTION_SLOT, motionMap);
 
-        ModuleManager mm = mModuleManager;
-        Module fgModule = (mm != null) ? mm.getActiveFrameGenModule() : null;
+        Mods mm = mMods;
+        Mod fgMod = (mm != null) ? mm.getActiveFgMod() : null;
 
         float mix = 1.0f;
-        ShaderFilter fgShader = null;
+        GlProgram fgShader = null;
         Map<String, Float> fgParams = null;
-        if (fgModule != null && fgModule.isEnabled()) {
-            Float mv = fgModule.getParams().get("uMix");
+        if (fgMod != null && fgMod.isEnabled()) {
+            Float mv = fgMod.getParams().get("uMix");
             if (mv != null) mix = mv;
 
-            fgShader = fgModule.getShaderFilter();
+            fgShader = fgMod.getGlProgram();
             if (fgShader != null) {
-                fgParams = new HashMap<String, Float>(fgModule.getParams());
+                fgParams = new HashMap<String, Float>(fgMod.getParams());
                 fgParams.put("uTime", (System.currentTimeMillis() - mStartTimeMs) / 1000f);
                 fgParams.put("uFrameGen", 1f);
                 fgParams.put("uTexelX", 1.0f / frameC.getWidth());
@@ -691,16 +691,16 @@ public class TargetRenderer {
         int fakeSlot = G1_OUT_BASE + ((mG3QueueHead + mG3QueueCount) % G1_OUT_COUNT);
         boolean ok;
         if (fgShader != null) {
-            ok = mGlRenderer.drawGenBlendShaderToTexture(
+            ok = mPainter.blendShaderInto(
                 mG3SlotA, G3_MOTION_SLOT, mix, fgShader, fgParams, fakeSlot);
         } else {
-            ok = mGlRenderer.drawGenSlotToTexture(mG3SlotA, fakeSlot, null, null);
+            ok = mPainter.drawSlotInto(mG3SlotA, fakeSlot, null, null);
         }
 
         if (ok && mG3QueueCount < G3_QUEUE_SIZE) {
             int tail = (mG3QueueHead + mG3QueueCount) % G3_QUEUE_SIZE;
             int realSlot = G1_OUT_BASE + ((tail + 1) % G1_OUT_COUNT);
-            boolean copied = mGlRenderer.drawGenSlotToTexture(mG3SlotNext, realSlot, null, null);
+            boolean copied = mPainter.drawSlotInto(mG3SlotNext, realSlot, null, null);
             if (copied) {
                 mG3QueueReal[tail] = realSlot;
                 mG3QueueFake[tail] = fakeSlot;
@@ -708,7 +708,7 @@ public class TargetRenderer {
             }
         }
 
-        mGlRenderer.uploadToGenSlot(mG3SlotNext, frameC);
+        mPainter.uploadSlot(mG3SlotNext, frameC);
 
         mG3SlotA    = mG3SlotNext;
         mG3SlotNext = (mG3SlotNext == G3_SLOT_A1) ? G3_SLOT_A2 : G3_SLOT_A1;
@@ -717,11 +717,11 @@ public class TargetRenderer {
         mG3PrevDs = cDs;
     }
 
-    private final Runnable mG3PresentationRunnable = new Runnable() {
+    private final Runnable mG3PresRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!mFrameGenMode || mFgGeneration != 3
-                || !mGlReady || mHolder == null || mGlRenderer == null) {
+            if (!mFrameGenMode || mFgVersion != 3
+                || !mGlReady || mHolder == null || mPainter == null) {
                 mG3PresRunning = false;
                 return;
             }
@@ -749,25 +749,25 @@ public class TargetRenderer {
                 mG3QueueCount--;
             }
 
-            mGlRenderer.drawGenSlot(slotToShow, null, null);
-            recordFrame();
+            mPainter.drawSlot(slotToShow, null, null);
+            tickFps();
             mG3UnderrunStreak = 0;
 
-            mGlHandler.postDelayed(this, computePresentationDelayMs());
+            mGlHandler.postDelayed(this, presentDelayMs());
         }
     };
 
-    private long computePresentationDelayMs() {
+    private long presentDelayMs() {
         long half = mInputIntervalNs / 2;
         long target = Math.max(half, mDisplayIntervalNs);
         return Math.max(1L, target / 1_000_000L);
     }
 
-    private void stopFrameGenAll() {
-        Log.d(TAG, "stopFrameGenAll");
+    private void stopAllGen() {
+        Log.d(TAG, "stopAllGen");
         mG2PresRunning = false;
-        mGlHandler.removeCallbacks(mG2PresentationRunnable);
-        mGlHandler.removeCallbacks(mG2GenerationRunnable);
+        mGlHandler.removeCallbacks(mG2PresRunnable);
+        mGlHandler.removeCallbacks(mG2GenRunnable);
         mG2GenRunning = false;
         mG2FakeReady = false;
         mG2SlotA = -1;
@@ -776,8 +776,8 @@ public class TargetRenderer {
         mG2UnderrunStreak = 0;
 
         mG1PresRunning = false;
-        mGlHandler.removeCallbacks(mG1PresentationRunnable);
-        mGlHandler.removeCallbacks(mG1GenerationRunnable);
+        mGlHandler.removeCallbacks(mG1PresRunnable);
+        mGlHandler.removeCallbacks(mG1GenRunnable);
         mG1GenRunning = false;
         mG1SlotA = -1;
         mG1SlotC = -1;
@@ -787,7 +787,7 @@ public class TargetRenderer {
         mG1UnderrunStreak = 0;
 
         mG3PresRunning = false;
-        mGlHandler.removeCallbacks(mG3PresentationRunnable);
+        mGlHandler.removeCallbacks(mG3PresRunnable);
         mG3QueueHead = 0;
         mG3QueueCount = 0;
         mG3SlotA = -1;
@@ -799,12 +799,12 @@ public class TargetRenderer {
         }
     }
 
-    private void startFrameGenCurrentGen() {
-        Log.d(TAG, "startFrameGenCurrentGen G" + mFgGeneration);
+    private void startGen() {
+        Log.d(TAG, "startGen G" + mFgVersion);
         mLastInputNs = 0L;
         mInputIntervalNs = DEFAULT_INPUT_INTERVAL_NS;
 
-        if (mFgGeneration == 3) {
+        if (mFgVersion == 3) {
             mG3SlotA = -1;
             mG3SlotNext = G3_SLOT_A1;
             mG3QueueHead = 0;
@@ -814,13 +814,13 @@ public class TargetRenderer {
             if (mG3PrevDs != null) { mG3PrevDs.recycle(); mG3PrevDs = null; }
             if (!mG3PresRunning) {
                 mG3PresRunning = true;
-                mGlHandler.removeCallbacks(mG3PresentationRunnable);
-                mGlHandler.post(mG3PresentationRunnable);
+                mGlHandler.removeCallbacks(mG3PresRunnable);
+                mGlHandler.post(mG3PresRunnable);
             }
             return;
         }
 
-        if (mFgGeneration == 1) {
+        if (mFgVersion == 1) {
             mG1SlotA = -1;
             mG1SlotC = -1;
             mG1QueueHead = 0;
@@ -830,8 +830,8 @@ public class TargetRenderer {
             mG1UnderrunStreak = 0;
             if (!mG1PresRunning) {
                 mG1PresRunning = true;
-                mGlHandler.removeCallbacks(mG1PresentationRunnable);
-                mGlHandler.post(mG1PresentationRunnable);
+                mGlHandler.removeCallbacks(mG1PresRunnable);
+                mGlHandler.post(mG1PresRunnable);
             }
         } else {
             mG2SlotA = -1;
@@ -842,53 +842,53 @@ public class TargetRenderer {
             mG2UnderrunStreak = 0;
             if (!mG2PresRunning) {
                 mG2PresRunning = true;
-                mGlHandler.removeCallbacks(mG2PresentationRunnable);
-                mGlHandler.post(mG2PresentationRunnable);
+                mGlHandler.removeCallbacks(mG2PresRunnable);
+                mGlHandler.post(mG2PresRunnable);
             }
         }
     }
 
-    private void syncFrameGenMode() {
-        ModuleManager mm = mModuleManager;
-        Module fg = (mm != null) ? mm.getActiveFrameGenModule() : null;
+    private void syncGen() {
+        Mods mm = mMods;
+        Mod fg = (mm != null) ? mm.getActiveFgMod() : null;
         boolean haveActiveFg = (fg != null && fg.isEnabled());
-        boolean compatible = haveActiveFg && shaderCompatibleWithGeneration(fg);
+        boolean compatible = haveActiveFg && shaderFitsVersion(fg);
         boolean want = compatible;
 
         if (want == mFrameGenMode) return;
 
-        Log.d(TAG, "syncFrameGenMode → " + (want ? "ON (G" + mFgGeneration + ")" : "OFF"));
+        Log.d(TAG, "syncGen → " + (want ? "ON (G" + mFgVersion + ")" : "OFF"));
         mFrameGenMode = want;
 
         if (want) {
-            stopNormalRenderLoop();
-            stopFrameGenAll();
-            startFrameGenCurrentGen();
+            stopNormalLoop();
+            stopAllGen();
+            startGen();
         } else {
-            stopFrameGenAll();
-            startNormalRenderLoopIfNeeded();
+            stopAllGen();
+            startNormalLoop();
         }
     }
 
     public void setScaleInfo(Rect captureRect, Rect overlayRect) { }
 
-    private boolean hasAnimatedModule() {
-        ModuleManager mm = mModuleManager;
+    private boolean hasAnimatedMod() {
+        Mods mm = mMods;
         if (mm == null) return false;
-        for (Module m : mm.getEnabledChain()) {
+        for (Mod m : mm.getEnabledChain()) {
             if (m.getParamDefs().containsKey("uTime")) return true;
         }
         return false;
     }
 
-    private void startNormalRenderLoopIfNeeded() {
+    private void startNormalLoop() {
         if (!mRenderLoopRunning) {
             mRenderLoopRunning = true;
             mGlHandler.post(mRenderLoop);
         }
     }
 
-    private void stopNormalRenderLoop() {
+    private void stopNormalLoop() {
         if (mRenderLoopRunning) {
             mRenderLoopRunning = false;
             mGlHandler.removeCallbacks(mRenderLoop);
@@ -900,30 +900,30 @@ public class TargetRenderer {
         mGlHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    stopNormalRenderLoop();
-                    stopFrameGenAll();
+                    stopNormalLoop();
+                    stopAllGen();
                     mFrameGenMode = false;
-                    if (mGlRenderer == null) return;
+                    if (mPainter == null) return;
                     if (holder != null) {
-                        destroyAllModuleShaders();
-                        mGlRenderer.setSurface(holder);
+                        freeAllShaders();
+                        mPainter.setSurface(holder);
                         mGlReady = true;
                     } else {
-                        mGlRenderer.setSurface(null);
+                        mPainter.setSurface(null);
                         mGlReady = false;
                     }
                 }
             });
     }
 
-    public void setModuleManager(ModuleManager moduleManager) {
-        mModuleManager = moduleManager;
+    public void setMods(Mods mods) {
+        mMods = mods;
     }
 
-    private void destroyAllModuleShaders() {
-        ModuleManager mm = mModuleManager;
+    private void freeAllShaders() {
+        Mods mm = mMods;
         if (mm == null) return;
-        for (Module m : mm.getAll()) {
+        for (Mod m : mm.getAll()) {
             m.destroyShader();
         }
     }
@@ -934,12 +934,12 @@ public class TargetRenderer {
                 @Override
                 public void run() {
                     try {
-                        stopNormalRenderLoop();
-                        stopFrameGenAll();
-                        if (mGlRenderer != null) {
-                            destroyAllModuleShaders();
-                            mGlRenderer.release();
-                            mGlRenderer = null;
+                        stopNormalLoop();
+                        stopAllGen();
+                        if (mPainter != null) {
+                            freeAllShaders();
+                            mPainter.release();
+                            mPainter = null;
                         }
                         mGlReady = false;
                     } catch (Exception e) {

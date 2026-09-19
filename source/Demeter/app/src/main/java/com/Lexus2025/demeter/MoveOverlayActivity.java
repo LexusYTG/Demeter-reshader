@@ -54,7 +54,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-public class OverlayPositionActivity extends Activity {
+public class MoveOverlayActivity extends Activity {
 
     public static final String RESULT_LEFT   = CaptureService.EXTRA_OVERLAY_LEFT;
     public static final String RESULT_TOP    = CaptureService.EXTRA_OVERLAY_TOP;
@@ -69,7 +69,7 @@ public class OverlayPositionActivity extends Activity {
     private static final int MIN_SIZE_DP = 48;
 
     private int mScreenW, mScreenH, mMinPx;
-    private OverlayDragView mDragView;
+    private BoxDragView mDragView;
     private TextView mTvInfo;
 
     private Rect mCaptureRef = null;
@@ -77,6 +77,7 @@ public class OverlayPositionActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Lang.init(this);
 
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(
@@ -108,7 +109,7 @@ public class OverlayPositionActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(0xCC000000);
 
-        mDragView = new OverlayDragView(this);
+        mDragView = new BoxDragView(this);
         root.addView(mDragView, new FrameLayout.LayoutParams(
 						 FrameLayout.LayoutParams.MATCH_PARENT,
 						 FrameLayout.LayoutParams.MATCH_PARENT));
@@ -121,13 +122,13 @@ public class OverlayPositionActivity extends Activity {
         mTvInfo = new TextView(this);
         mTvInfo.setTextColor(Color.WHITE);
         mTvInfo.setTextSize(12f);
-        mTvInfo.setText("Arrastra el overlay · esquinas para redimensionar");
+        mTvInfo.setText(Lang.get(250));
         LinearLayout.LayoutParams tvParams = new LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         panel.addView(mTvInfo, tvParams);
 
         Button btnAdapt = new Button(this);
-        btnAdapt.setText(mCaptureRef != null ? "= Captura" : "Completa");
+        btnAdapt.setText(mCaptureRef != null ? Lang.get(251) : Lang.get(252));
         btnAdapt.setOnClickListener(new View.OnClickListener() {
 				@Override public void onClick(View v) {
 					if (mCaptureRef != null) {
@@ -141,7 +142,7 @@ public class OverlayPositionActivity extends Activity {
         panel.addView(btnAdapt);
 
         Button btnFull = new Button(this);
-        btnFull.setText("Completa");
+        btnFull.setText(Lang.get(252));
         btnFull.setOnClickListener(new View.OnClickListener() {
 				@Override public void onClick(View v) {
 					mDragView.setRect(new Rect(0, 0, mScreenW, mScreenH));
@@ -150,7 +151,7 @@ public class OverlayPositionActivity extends Activity {
         panel.addView(btnFull);
 
         Button btnOk = new Button(this);
-        btnOk.setText("OK");
+        btnOk.setText(Lang.get(253));
         btnOk.setOnClickListener(new View.OnClickListener() {
 				@Override public void onClick(View v) { confirmSelection(); }
 			});
@@ -193,7 +194,7 @@ public class OverlayPositionActivity extends Activity {
         finish();
     }
 
-    private class OverlayDragView extends View {
+    private class BoxDragView extends View {
 
         private final Paint mBgPaint;
         private final Paint mBorderPaint;
@@ -216,7 +217,7 @@ public class OverlayPositionActivity extends Activity {
         private final int mHandleR;
         private final int mEdgeHit;
 
-        OverlayDragView(Context ctx) {
+        BoxDragView(Context ctx) {
             super(ctx);
             float d = getResources().getDisplayMetrics().density;
             mHandleR = (int)(22 * d);
@@ -372,7 +373,7 @@ public class OverlayPositionActivity extends Activity {
                 Paint capLabel = new Paint(mLabelPaint);
                 capLabel.setColor(0xFFFF8800);
                 capLabel.setTextSize(capLabel.getTextSize() * 0.85f);
-                canvas.drawText("área de captura",
+                canvas.drawText(Lang.get(254),
 								mCaptureRef.left + 8,
 								mCaptureRef.top  > 20 ? mCaptureRef.top - 6 : mCaptureRef.top + 20,
 								capLabel);
@@ -398,7 +399,7 @@ public class OverlayPositionActivity extends Activity {
                 boolean sameAspect = Math.abs(
                     (float)mRect.width()  / mRect.height() -
                     (float)mCaptureRef.width() / mCaptureRef.height()) < 0.02f;
-                label += sameAspect ? "  ✓1:1" : "  ⚠ distorsión";
+                label += sameAspect ? "  " + Lang.get(255) : "  " + Lang.get(256);
             }
             float ly = mRect.top > 28 ? mRect.top - 10 : mRect.bottom + 24;
             canvas.drawText(label, mRect.left + 8, ly, mLabelPaint);
@@ -406,12 +407,12 @@ public class OverlayPositionActivity extends Activity {
 
         private void updateInfo() {
             if (mTvInfo == null || mRect == null) return;
-            String info = "x:" + mRect.left + " y:" + mRect.top
-                + "  " + mRect.width() + "×" + mRect.height() + " px";
+            String info = Lang.f(257, mRect.left, mRect.top,
+								 mRect.width(), mRect.height());
             if (mCaptureRef != null) {
                 float scaleX = (float) mRect.width()  / mCaptureRef.width();
                 float scaleY = (float) mRect.height() / mCaptureRef.height();
-                info += String.format("  escala %.2fx%.2f", scaleX, scaleY);
+                info += "  " + Lang.f(258, scaleX, scaleY);
             }
             mTvInfo.setText(info);
         }

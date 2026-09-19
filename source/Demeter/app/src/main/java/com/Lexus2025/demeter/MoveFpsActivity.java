@@ -55,7 +55,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-public class FpsPositionActivity extends Activity {
+public class MoveFpsActivity extends Activity {
 
     public static final String PREF_POS_X = "fps_pos_x";
     public static final String PREF_POS_Y = "fps_pos_y";
@@ -66,12 +66,13 @@ public class FpsPositionActivity extends Activity {
     private static final int MARGIN_DP = 8;
 
     private int mScreenW, mScreenH, mMarginPx, mOvW, mOvH;
-    private PinView mPinView;
+    private FpsDragView mPinView;
     private TextView mTvInfo;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Lang.init(this);
 
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(
@@ -95,7 +96,7 @@ public class FpsPositionActivity extends Activity {
         mOvH      = (int)(CaptureService.FPS_OVERLAY_HEIGHT_DP * d + 0.5f);
 
         SharedPreferences prefs = getSharedPreferences(
-            FiltersActivity.PREFS_NAME, MODE_PRIVATE);
+            MyFiltersActivity.PREFS_NAME, MODE_PRIVATE);
         int savedX = prefs.getInt(PREF_POS_X, -1);
         int savedY = prefs.getInt(PREF_POS_Y, -1);
 
@@ -111,7 +112,7 @@ public class FpsPositionActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(0x00000000);
 
-        mPinView = new PinView(this, startX, startY);
+        mPinView = new FpsDragView(this, startX, startY);
         root.addView(mPinView, new FrameLayout.LayoutParams(
                          FrameLayout.LayoutParams.MATCH_PARENT,
                          FrameLayout.LayoutParams.MATCH_PARENT));
@@ -124,13 +125,13 @@ public class FpsPositionActivity extends Activity {
         mTvInfo = new TextView(this);
         mTvInfo.setTextColor(Color.WHITE);
         mTvInfo.setTextSize(12f);
-        mTvInfo.setText("Arrastra el pin para posicionar el overlay de FPS");
+        mTvInfo.setText(Lang.get(200));
         LinearLayout.LayoutParams tvParams = new LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         panel.addView(mTvInfo, tvParams);
 
         Button btnDefault = new Button(this);
-        btnDefault.setText("Default");
+        btnDefault.setText(Lang.get(201));
         btnDefault.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     mPinView.setPosition(mScreenW - mOvW - mMarginPx, mMarginPx);
@@ -139,7 +140,7 @@ public class FpsPositionActivity extends Activity {
         panel.addView(btnDefault);
 
         Button btnCancel = new Button(this);
-        btnCancel.setText("Cancelar");
+        btnCancel.setText(Lang.get(202));
         btnCancel.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     setResult(RESULT_CANCELED);
@@ -149,7 +150,7 @@ public class FpsPositionActivity extends Activity {
         panel.addView(btnCancel);
 
         Button btnOk = new Button(this);
-        btnOk.setText("OK");
+        btnOk.setText(Lang.get(203));
         btnOk.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { confirm(); }
             });
@@ -180,7 +181,7 @@ public class FpsPositionActivity extends Activity {
 
     private void confirm() {
         Rect r = mPinView.getRect();
-        getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
+        getSharedPreferences(MyFiltersActivity.PREFS_NAME, MODE_PRIVATE)
             .edit()
             .putInt(PREF_POS_X, r.left)
             .putInt(PREF_POS_Y, r.top)
@@ -198,7 +199,7 @@ public class FpsPositionActivity extends Activity {
         return Math.max(lo, Math.min(v, hi));
     }
 
-    private class PinView extends View {
+    private class FpsDragView extends View {
 
         private final Paint mDimPaint;
         private final Paint mFillPaint;
@@ -211,7 +212,7 @@ public class FpsPositionActivity extends Activity {
         private boolean mDragging = false;
         private float mOffsetX, mOffsetY;
 
-        PinView(Context ctx, int x, int y) {
+        FpsDragView(Context ctx, int x, int y) {
             super(ctx);
             float d = getResources().getDisplayMetrics().density;
 
@@ -301,13 +302,12 @@ public class FpsPositionActivity extends Activity {
                             mRect.right, mRect.centerY(), mCrosshairPaint);
 
             float ly = (mRect.top > 26) ? mRect.top - 8 : mRect.bottom + 22;
-            canvas.drawText("FPS", mRect.left + 4, ly, mLabelPaint);
+            canvas.drawText(Lang.get(204), mRect.left + 4, ly, mLabelPaint);
         }
 
         private void updateInfo() {
             if (mTvInfo == null) return;
-            mTvInfo.setText("x:" + mRect.left + "  y:" + mRect.top
-                            + "   " + mOvW + "×" + mOvH + " px");
+            mTvInfo.setText(Lang.f(205, mRect.left, mRect.top, mOvW, mOvH));
         }
     }
 }

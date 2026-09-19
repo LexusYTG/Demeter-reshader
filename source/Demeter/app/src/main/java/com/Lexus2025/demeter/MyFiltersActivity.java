@@ -47,9 +47,9 @@ import android.view.*;
 import android.widget.*;
 import java.util.*;
 
-public class FiltersActivity extends Activity {
+public class MyFiltersActivity extends Activity implements Lang.Listener {
 
-    private static final String TAG = "FiltersActivity";
+    private static final String TAG = "MyFiltersActivity";
 
     private static final int MP = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WC = ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -65,7 +65,7 @@ public class FiltersActivity extends Activity {
     private static final int AVAILABLE_PAGE_SIZE = 20;
     private static final long SEARCH_DEBOUNCE_MS = 120L;
 
-    private ModuleManager mModuleManager;
+    private Mods mMods;
     private LinearLayout  mLlFilters;
     private TextView      mTvCount;
     private boolean       mChanged = false;
@@ -84,7 +84,7 @@ public class FiltersActivity extends Activity {
 
     private String      mQuery          = "";
     private String      mSelectedAuthor = null;
-    private Module.Type mSelectedType   = null;
+    private Mod.Type    mSelectedType   = null;
 
     private int mAvailableLimit = AVAILABLE_PAGE_SIZE;
 
@@ -112,14 +112,17 @@ public class FiltersActivity extends Activity {
         mFpsOverlay = sp.getBoolean(PREF_FPS_OVERLAY, false);
         mFgMode     = sp.getInt(PREF_FRAMEGEN_MODE, 2);
 
-        mModuleManager = new ModuleManager(this);
+        mMods = new Mods(this);
 
-        setContentView(buildRoot());
+        Lang.init(this);
+        Lang.addListener(this);
+
+        setContentView(rootLayout());
         rebuildAuthorChips();
         rebuildTypeChips();
         rebuildList();
 
-        revalidateEnabledModules();
+        recheckEnabled();
     }
 
     @Override protected void onResume() {
@@ -138,7 +141,7 @@ public class FiltersActivity extends Activity {
             mFgMode = fg;
             updateFgModeButton();
         }
-        updateFpsPositionButtonState();
+        updateFpsBtn();
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -155,8 +158,22 @@ public class FiltersActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        Lang.removeListener(this);
         super.onDestroy();
         mUiHandler.removeCallbacks(mRebuildRunnable);
+    }
+
+    @Override
+    public void onLanguageChanged() {
+        runOnUiThread(new Runnable() {
+				@Override public void run() {
+					if (mSearch != null) mSearch.setHint(Lang.get(301));
+					rebuildAuthorChips();
+					rebuildTypeChips();
+					rebuildList();
+					updateFgModeButton();
+				}
+			});
     }
 
     @Override public void finish() {
@@ -166,27 +183,19 @@ public class FiltersActivity extends Activity {
         super.finish();
     }
 
-    private void scheduleRebuild() {
+    private void rebuildLater() {
         mUiHandler.removeCallbacks(mRebuildRunnable);
         mUiHandler.postDelayed(mRebuildRunnable, SEARCH_DEBOUNCE_MS);
     }
 
-    // ========================================================================
-    // Prueba asíncrona de shader contra el driver GL (contexto offscreen)
-    // ========================================================================
-
-    private String runCompileTest(Module module) {
-        return ShaderFilter.testCompile(
+    private String tryCompile(Mod module) {
+        return GlProgram.testCompile(
             module.getVertexShader(), module.getFragmentShader());
     }
 
-    /**
-     * Revalida en background todos los módulos que quedaron encendidos de una
-     * sesión anterior. Si alguno ya no compila, se desactiva y se avisa.
-     */
-    private void revalidateEnabledModules() {
-        final List<Module> toCheck = new ArrayList<Module>();
-        for (Module m : mModuleManager.getAll()) {
+    private void recheckEnabled() {
+        final List<Mod> toCheck = new ArrayList<Mod>();
+        for (Mod m : mMods.getAll()) {
             if (m.isEnabled()) toCheck.add(m);
         }
         if (toCheck.isEmpty()) return;
@@ -194,8 +203,8 @@ public class FiltersActivity extends Activity {
         new Thread(new Runnable() {
 				@Override public void run() {
 					final List<String> failed = new ArrayList<String>();
-					for (Module m : toCheck) {
-						String err = runCompileTest(m);
+					for (Mod m : toCheck) {
+						String err = tryCompile(m);
 						if (err != null) failed.add(m.getName());
 					}
 					if (failed.isEmpty()) return;
@@ -203,17 +212,17 @@ public class FiltersActivity extends Activity {
 							@Override public void run() {
 								int n = 0;
 								for (String name : failed) {
-									Module m = mModuleManager.getModuleByName(name);
+									Mod m = mMods.byName(name);
 									if (m != null && m.isEnabled()) {
-										mModuleManager.setEnabled(m, false);
+										mMods.setEnabled(m, false);
 										n++;
 									}
 								}
 								if (n > 0) {
 									mChanged = true;
 									rebuildList();
-									Toast.makeText(FiltersActivity.this,
-												   "Se desactivaron " + n + " filtro(s) que ya no compilan",
+									Toast.makeText(MyFiltersActivity.this,
+												   Lang.f(321, n),
 												   Toast.LENGTH_LONG).show();
 								}
 							}
@@ -222,19 +231,15 @@ public class FiltersActivity extends Activity {
 			}, "RevalidateShaders").start();
     }
 
-    /**
-     * Flujo unificado de toggle ON. Se llama desde cualquier Switch de fila.
-     * Deshabilita el switch mientras dura la prueba y lo revierte si falla.
-     */
-    private void handleToggleOn(final Module module, final CompoundButton buttonView) {
+    private void turnOn(final Mod module, final CompoundButton buttonView) {
         buttonView.setEnabled(false);
-        Toast.makeText(FiltersActivity.this,
-                       "Compilando " + module.getName() + "…",
+        Toast.makeText(MyFiltersActivity.this,
+                       Lang.f(318, module.getName()),
                        Toast.LENGTH_SHORT).show();
 
         new Thread(new Runnable() {
 				@Override public void run() {
-					final String err = runCompileTest(module);
+					final String err = tryCompile(module);
 					runOnUiThread(new Runnable() {
 							@Override public void run() {
 								buttonView.setEnabled(true);
@@ -243,11 +248,11 @@ public class FiltersActivity extends Activity {
 									buttonView.setChecked(false);
 									return;
 								}
-								mModuleManager.setEnabled(module, true);
+								mMods.setEnabled(module, true);
 								mChanged = true;
 								rebuildList();
-								Toast.makeText(FiltersActivity.this,
-											   module.getName() + " activado",
+								Toast.makeText(MyFiltersActivity.this,
+											   Lang.f(319, module.getName()),
 											   Toast.LENGTH_SHORT).show();
 							}
 						});
@@ -255,79 +260,75 @@ public class FiltersActivity extends Activity {
 			}, "ShaderToggleTest").start();
     }
 
-    private void handleToggleOff(final Module module) {
-        mModuleManager.setEnabled(module, false);
+    private void turnOff(final Mod module) {
+        mMods.setEnabled(module, false);
         mChanged = true;
         rebuildList();
-        Toast.makeText(FiltersActivity.this,
-                       module.getName() + " desactivado",
+        Toast.makeText(MyFiltersActivity.this,
+                       Lang.f(320, module.getName()),
                        Toast.LENGTH_SHORT).show();
     }
 
-    // ========================================================================
-    // Construcción de UI
-    // ========================================================================
-
-    private View buildRoot() {
+    private View rootLayout() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Ui.BG_ROOT);
+        root.setBackgroundColor(Skin.BG_ROOT);
 
-        root.addView(buildHeader());
-        root.addView(buildFpsOverlayRow());
-        root.addView(buildSearchRow());
-        root.addView(buildAuthorChipsRow());
-        root.addView(buildTypeChipsRow());
+        root.addView(topBar());
+        root.addView(fpsRow());
+        root.addView(searchBar());
+        root.addView(authorBar());
+        root.addView(typeBar());
 
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
-        scroll.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 12), Ui.dp(this, 12));
+        scroll.setPadding(Skin.dp(this, 12), 0, Skin.dp(this, 12), Skin.dp(this, 12));
 
         mLlFilters = new LinearLayout(this);
         mLlFilters.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(mLlFilters, new FrameLayout.LayoutParams(MP, WC));
 
-        root.addView(scroll, Ui.lp(MP, 0, 1f));
+        root.addView(scroll, Skin.lp(MP, 0, 1f));
         return root;
     }
 
-    private View buildHeader() {
+    private View topBar() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int p = Ui.dp(this, 16);
+        int p = Skin.dp(this, 16);
         row.setPadding(p, p, p, p);
 
         TextView back = makeIconButton("\u2715");
         back.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { finish(); }
             });
-        row.addView(back, Ui.lp(Ui.dp(this, 44), Ui.dp(this, 44)));
+        row.addView(back, Skin.lp(Skin.dp(this, 44), Skin.dp(this, 44)));
 
         mBtnFgMode = new TextView(this);
         mBtnFgMode.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        mBtnFgMode.setTypeface(Ui.medium());
+        mBtnFgMode.setTypeface(Skin.medium());
         mBtnFgMode.setGravity(Gravity.CENTER);
         mBtnFgMode.setClickable(true);
         mBtnFgMode.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { showFgGenerationDialog(); }
+                @Override public void onClick(View v) { showFgDialog(); }
             });
-        LinearLayout.LayoutParams fgLp = Ui.lp(Ui.dp(this, 48), Ui.dp(this, 40));
-        fgLp.leftMargin = Ui.dp(this, 8);
+        LinearLayout.LayoutParams fgLp = Skin.lp(Skin.dp(this, 48), Skin.dp(this, 40));
+        fgLp.leftMargin = Skin.dp(this, 8);
         row.addView(mBtnFgMode, fgLp);
         updateFgModeButton();
 
-        TextView title = Ui.text(this, "Filtros", 24, Ui.TEXT_PRIMARY, true);
-        LinearLayout.LayoutParams lpTitle = Ui.lp(0, WC, 1f);
-        lpTitle.leftMargin = Ui.dp(this, 12);
+        TextView title = Skin.text(this, Lang.get(300), 24, Skin.TEXT_PRIMARY, true);
+        LinearLayout.LayoutParams lpTitle = Skin.lp(0, WC, 1f);
+        lpTitle.leftMargin = Skin.dp(this, 12);
         row.addView(title, lpTitle);
 
-        mTvCount = Ui.text(this, "0", 14, Ui.ACCENT, true);
+        mTvCount = Skin.text(this, "0", 14, Skin.ACCENT, true);
         mTvCount.setGravity(Gravity.CENTER);
-        mTvCount.setBackground(Ui.roundRectStroke(
-                                   Ui.ACCENT_SOFT, Ui.ACCENT_SOFT, this, 20, 0));
-        int hpad = Ui.dp(this, 14);
-        int vpad = Ui.dp(this, 8);
+        mTvCount.setBackground(Skin.roundRectStroke(
+                                   Skin.ACCENT_SOFT, Skin.ACCENT_SOFT, this, 20, 0));
+        int hpad = Skin.dp(this, 14);
+        int vpad = Skin.dp(this, 8);
         mTvCount.setPadding(hpad, vpad, hpad, vpad);
         row.addView(mTvCount);
         return row;
@@ -341,14 +342,12 @@ public class FiltersActivity extends Activity {
         else                   label = "G2";
         mBtnFgMode.setText(label);
         mBtnFgMode.setTextColor(0xFFFFFFFF);
-        mBtnFgMode.setBackground(Ui.buttonBgSolid(this, Ui.ACCENT, Ui.ACCENT_DIM, 10));
+        mBtnFgMode.setBackground(Skin.buttonBgSolid(this, Skin.ACCENT, Skin.ACCENT_DIM, 10));
     }
 
-    private void showFgGenerationDialog() {
+    private void showFgDialog() {
         final CharSequence[] options = new CharSequence[]{
-            "Generación 1 — orden estricto, más delay, sin jitter",
-            "Generación 2 — sin cola, baja latencia, algo de jitter",
-            "Generación 3 — motion vectors precalculados, requiere shader G3"
+            Lang.get(331), Lang.get(332), Lang.get(333)
         };
 
         int preselected;
@@ -357,7 +356,7 @@ public class FiltersActivity extends Activity {
         else                   preselected = 1;
 
         new AlertDialog.Builder(this)
-            .setTitle("Motor de Frame Generation")
+            .setTitle(Lang.get(330))
             .setSingleChoiceItems(options, preselected,
             new DialogInterface.OnClickListener() {
                 @Override public void onClick(DialogInterface d, int which) {
@@ -370,31 +369,20 @@ public class FiltersActivity extends Activity {
                     }
                 }
             })
-            .setNegativeButton("Cancelar", null)
+            .setNegativeButton(Lang.get(18), null)
             .show();
     }
 
     private void showG3Warning(final int mode) {
         new AlertDialog.Builder(this)
-            .setTitle("Advertencia — Generación 3")
-            .setMessage(
-			"La Generación 3 usa un pipeline distinto: la app calcula los " +
-			"motion vectors por ti y se los entrega al shader. Los shaders " +
-			"para G1 y G2 NO funcionan con G3, y viceversa.\n\n" +
-			"Solo los shaders marcados explícitamente como FG-G3 son " +
-			"compatibles. Si activas un shader que no es G3, el framegen " +
-			"no arrancará.\n\n" +
-			"Usa únicamente shaders G3 de la tienda oficial. Un shader G3 " +
-			"de terceros tiene acceso a los datos de movimiento de la " +
-			"pantalla. Demeter no se hace responsable por shaders que no " +
-			"hayan pasado por revisión.\n\n" +
-			"¿Quieres activar la Generación 3?")
-            .setPositiveButton("Activar", new DialogInterface.OnClickListener() {
+            .setTitle(Lang.get(334))
+            .setMessage(Lang.get(335))
+            .setPositiveButton(Lang.get(336), new DialogInterface.OnClickListener() {
                 @Override public void onClick(DialogInterface d, int w) {
                     setFgMode(mode);
                 }
             })
-            .setNegativeButton("Cancelar", null)
+            .setNegativeButton(Lang.get(18), null)
             .show();
     }
 
@@ -406,7 +394,7 @@ public class FiltersActivity extends Activity {
         updateFgModeButton();
         sendFgModeBroadcast(mode);
         mChanged = true;
-        Toast.makeText(this, "FrameGen: Generación " + mode, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, Lang.f(337, mode), Toast.LENGTH_SHORT).show();
     }
 
     private void sendFgModeBroadcast(int mode) {
@@ -420,37 +408,37 @@ public class FiltersActivity extends Activity {
         TextView tv = new TextView(this);
         tv.setText(glyph);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        tv.setTextColor(Ui.TEXT_PRIMARY);
+        tv.setTextColor(Skin.TEXT_PRIMARY);
         tv.setGravity(Gravity.CENTER);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setBackground(Ui.buttonBgStroke(this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 22, 1f));
+        tv.setBackground(Skin.buttonBgStroke(this, Skin.BG_ELEV, Skin.DIVIDER, Skin.DIVIDER, 22, 1f));
         tv.setClickable(true);
         return tv;
     }
 
-    private View buildSearchRow() {
+    private View searchBar() {
         FrameLayout wrap = new FrameLayout(this);
-        wrap.setBackground(Ui.roundRectStroke(Ui.BG_SURFACE, Ui.DIVIDER, this, 12, 1f));
+        wrap.setBackground(Skin.roundRectStroke(Skin.BG_SURFACE, Skin.DIVIDER, this, 12, 1f));
 
         LinearLayout inner = new LinearLayout(this);
         inner.setOrientation(LinearLayout.HORIZONTAL);
         inner.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dp(this, 12);
+        int pad = Skin.dp(this, 12);
         inner.setPadding(pad, 0, pad, 0);
         wrap.addView(inner, new FrameLayout.LayoutParams(MP, MP));
 
-        TextView icon = Ui.text(this, "\uD83D\uDD0D", 14, Ui.TEXT_TERTIARY, false);
+        TextView icon = Skin.text(this, "\uD83D\uDD0D", 14, Skin.TEXT_TERTIARY, false);
         inner.addView(icon);
 
         mSearch = new EditText(this);
-        mSearch.setHint("Buscar filtro o autor…");
-        mSearch.setHintTextColor(Ui.TEXT_TERTIARY);
-        mSearch.setTextColor(Ui.TEXT_PRIMARY);
+        mSearch.setHint(Lang.get(301));
+        mSearch.setHintTextColor(Skin.TEXT_TERTIARY);
+        mSearch.setTextColor(Skin.TEXT_PRIMARY);
         mSearch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         mSearch.setBackgroundColor(0x00000000);
         mSearch.setSingleLine(true);
-        mSearch.setPadding(Ui.dp(this, 10), 0, 0, 0);
-        inner.addView(mSearch, Ui.lp(0, MP, 1f));
+        mSearch.setPadding(Skin.dp(this, 10), 0, 0, 0);
+        inner.addView(mSearch, Skin.lp(0, MP, 1f));
 
         mSearch.addTextChangedListener(new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -458,23 +446,23 @@ public class FiltersActivity extends Activity {
                 @Override public void afterTextChanged(Editable s) {
                     mQuery = s.toString().trim().toLowerCase();
                     mAvailableLimit = AVAILABLE_PAGE_SIZE;
-                    scheduleRebuild();
+                    rebuildLater();
                 }
             });
 
-        LinearLayout.LayoutParams lp = Ui.lp(MP, Ui.dp(this, 44));
-        lp.leftMargin = lp.rightMargin = Ui.dp(this, 14);
-        lp.topMargin = Ui.dp(this, 4);
-        lp.bottomMargin = Ui.dp(this, 6);
+        LinearLayout.LayoutParams lp = Skin.lp(MP, Skin.dp(this, 44));
+        lp.leftMargin = lp.rightMargin = Skin.dp(this, 14);
+        lp.topMargin = Skin.dp(this, 4);
+        lp.bottomMargin = Skin.dp(this, 6);
         wrap.setLayoutParams(lp);
         return wrap;
     }
 
-    private View buildAuthorChipsRow() {
+    private View authorBar() {
         LinearLayout holder = new LinearLayout(this);
         holder.setOrientation(LinearLayout.HORIZONTAL);
-        int side = Ui.dp(this, 14);
-        holder.setPadding(side, Ui.dp(this, 2), side, 0);
+        int side = Skin.dp(this, 14);
+        holder.setPadding(side, Skin.dp(this, 2), side, 0);
 
         mAuthorChipsScroll = new HorizontalScrollView(this);
         mAuthorChipsScroll.setHorizontalScrollBarEnabled(false);
@@ -482,7 +470,7 @@ public class FiltersActivity extends Activity {
         mAuthorChips.setOrientation(LinearLayout.HORIZONTAL);
         mAuthorChipsScroll.addView(mAuthorChips, new FrameLayout.LayoutParams(WC, WC));
 
-        LinearLayout.LayoutParams scrollLp = Ui.lp(0, Ui.dp(this, 34), 1f);
+        LinearLayout.LayoutParams scrollLp = Skin.lp(0, Skin.dp(this, 34), 1f);
         holder.addView(mAuthorChipsScroll, scrollLp);
         return holder;
     }
@@ -492,14 +480,14 @@ public class FiltersActivity extends Activity {
         mAuthorChips.removeAllViews();
 
         TreeSet<String> authors = new TreeSet<String>();
-        for (Module m : mModuleManager.getAll()) {
+        for (Mod m : mMods.getAll()) {
             String a = m.getAuthor();
             if (a != null && !a.isEmpty()) authors.add(a);
         }
 
         if (mSelectedAuthor != null && !authors.contains(mSelectedAuthor)) mSelectedAuthor = null;
 
-        mAuthorChips.addView(makeFilterChip("Todos", mSelectedAuthor == null,
+        mAuthorChips.addView(makeFilterChip(Lang.get(302), mSelectedAuthor == null,
 								 new Runnable() {
 									 @Override public void run() {
 										 mSelectedAuthor = null;
@@ -522,11 +510,11 @@ public class FiltersActivity extends Activity {
         }
     }
 
-    private View buildTypeChipsRow() {
+    private View typeBar() {
         LinearLayout holder = new LinearLayout(this);
         holder.setOrientation(LinearLayout.HORIZONTAL);
-        int side = Ui.dp(this, 14);
-        holder.setPadding(side, Ui.dp(this, 2), side, Ui.dp(this, 4));
+        int side = Skin.dp(this, 14);
+        holder.setPadding(side, Skin.dp(this, 2), side, Skin.dp(this, 4));
 
         mTypeChipsScroll = new HorizontalScrollView(this);
         mTypeChipsScroll.setHorizontalScrollBarEnabled(false);
@@ -534,7 +522,7 @@ public class FiltersActivity extends Activity {
         mTypeChips.setOrientation(LinearLayout.HORIZONTAL);
         mTypeChipsScroll.addView(mTypeChips, new FrameLayout.LayoutParams(WC, WC));
 
-        LinearLayout.LayoutParams scrollLp = Ui.lp(0, Ui.dp(this, 34), 1f);
+        LinearLayout.LayoutParams scrollLp = Skin.lp(0, Skin.dp(this, 34), 1f);
         holder.addView(mTypeChipsScroll, scrollLp);
         return holder;
     }
@@ -543,7 +531,7 @@ public class FiltersActivity extends Activity {
         if (mTypeChips == null) return;
         mTypeChips.removeAllViews();
 
-        mTypeChips.addView(makeFilterChip("Todos", mSelectedType == null, new Runnable() {
+        mTypeChips.addView(makeFilterChip(Lang.get(302), mSelectedType == null, new Runnable() {
 								   @Override public void run() {
 									   mSelectedType = null;
 									   mAvailableLimit = AVAILABLE_PAGE_SIZE;
@@ -552,40 +540,40 @@ public class FiltersActivity extends Activity {
 								   }
 							   }));
 
-        mTypeChips.addView(makeFilterChip("MOD", mSelectedType == Module.Type.MODIFIER,
+        mTypeChips.addView(makeFilterChip(Lang.get(303), mSelectedType == Mod.Type.MODIFIER,
 							   new Runnable() {
 								   @Override public void run() {
-									   mSelectedType = Module.Type.MODIFIER;
+									   mSelectedType = Mod.Type.MODIFIER;
 									   mAvailableLimit = AVAILABLE_PAGE_SIZE;
 									   rebuildTypeChips();
 									   rebuildList();
 								   }
 							   }));
 
-        mTypeChips.addView(makeFilterChip("RENDERER", mSelectedType == Module.Type.RENDERER,
+        mTypeChips.addView(makeFilterChip(Lang.get(304), mSelectedType == Mod.Type.RENDERER,
 							   new Runnable() {
 								   @Override public void run() {
-									   mSelectedType = Module.Type.RENDERER;
+									   mSelectedType = Mod.Type.RENDERER;
 									   mAvailableLimit = AVAILABLE_PAGE_SIZE;
 									   rebuildTypeChips();
 									   rebuildList();
 								   }
 							   }));
 
-        mTypeChips.addView(makeFilterChip("FRAMEGEN", mSelectedType == Module.Type.FRAMEGEN,
+        mTypeChips.addView(makeFilterChip(Lang.get(305), mSelectedType == Mod.Type.FRAMEGEN,
 							   new Runnable() {
 								   @Override public void run() {
-									   mSelectedType = Module.Type.FRAMEGEN;
+									   mSelectedType = Mod.Type.FRAMEGEN;
 									   mAvailableLimit = AVAILABLE_PAGE_SIZE;
 									   rebuildTypeChips();
 									   rebuildList();
 								   }
 							   }));
 
-        mTypeChips.addView(makeFilterChip("FG-G3", mSelectedType == Module.Type.FRAMEGEN_G3,
+        mTypeChips.addView(makeFilterChip(Lang.get(306), mSelectedType == Mod.Type.FRAMEGEN_G3,
 							   new Runnable() {
 								   @Override public void run() {
-									   mSelectedType = Module.Type.FRAMEGEN_G3;
+									   mSelectedType = Mod.Type.FRAMEGEN_G3;
 									   mAvailableLimit = AVAILABLE_PAGE_SIZE;
 									   rebuildTypeChips();
 									   rebuildList();
@@ -597,30 +585,30 @@ public class FiltersActivity extends Activity {
         TextView chip = new TextView(this);
         chip.setText(label);
         chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        chip.setTypeface(Ui.medium());
+        chip.setTypeface(Skin.medium());
         chip.setGravity(Gravity.CENTER);
         chip.setSingleLine(true);
-        int hp = Ui.dp(this, 14);
-        int vp = Ui.dp(this, 6);
+        int hp = Skin.dp(this, 14);
+        int vp = Skin.dp(this, 6);
         chip.setPadding(hp, vp, hp, vp);
         if (selected) {
             chip.setTextColor(0xFFFFFFFF);
-            chip.setBackground(Ui.roundRect(Ui.ACCENT, this, 20));
+            chip.setBackground(Skin.roundRect(Skin.ACCENT, this, 20));
         } else {
-            chip.setTextColor(Ui.TEXT_SECOND);
-            chip.setBackground(Ui.roundRectStroke(Ui.BG_SURFACE, Ui.DIVIDER, this, 20, 1f));
+            chip.setTextColor(Skin.TEXT_SECOND);
+            chip.setBackground(Skin.roundRectStroke(Skin.BG_SURFACE, Skin.DIVIDER, this, 20, 1f));
         }
         chip.setClickable(true);
         chip.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { onSelect.run(); }
             });
-        LinearLayout.LayoutParams lp = Ui.lp(WC, WC);
-        lp.rightMargin = Ui.dp(this, 6);
+        LinearLayout.LayoutParams lp = Skin.lp(WC, WC);
+        lp.rightMargin = Skin.dp(this, 6);
         chip.setLayoutParams(lp);
         return chip;
     }
 
-    private boolean matchesFilter(Module m) {
+    private boolean matchesFilter(Mod m) {
         if (mSelectedAuthor != null) {
             if (m.getAuthor() == null || !m.getAuthor().equals(mSelectedAuthor)) return false;
         }
@@ -637,48 +625,48 @@ public class FiltersActivity extends Activity {
         return true;
     }
 
-    private boolean isFramegenType(Module.Type t) {
-        return t == Module.Type.FRAMEGEN || t == Module.Type.FRAMEGEN_G3;
+    private boolean isFrameGen(Mod.Type t) {
+        return t == Mod.Type.FRAMEGEN || t == Mod.Type.FRAMEGEN_G3;
     }
 
     private void rebuildList() {
         mLlFilters.removeAllViews();
 
-        final List<Module> active = mModuleManager.getEnabledChain();
-        final List<Module> all    = mModuleManager.getAll();
+        final List<Mod> active = mMods.getEnabledChain();
+        final List<Mod> all    = mMods.getAll();
 
-        List<Module> frameGenModules = new ArrayList<Module>();
-        for (Module m : all) if (isFramegenType(m.getType())) frameGenModules.add(m);
+        List<Mod> frameGenMods = new ArrayList<Mod>();
+        for (Mod m : all) if (isFrameGen(m.getType())) frameGenMods.add(m);
 
-        List<Module> available = new ArrayList<Module>();
-        for (Module m : all) {
-            if (isFramegenType(m.getType())) continue;
+        List<Mod> available = new ArrayList<Mod>();
+        for (Mod m : all) {
+            if (isFrameGen(m.getType())) continue;
             boolean isActive = false;
-            for (Module a : active) {
+            for (Mod a : active) {
                 if (a.getName().equals(m.getName())) { isActive = true; break; }
             }
             if (!isActive) available.add(m);
         }
 
-        List<Module> activeVisible    = new ArrayList<Module>();
-        List<Module> availableVisible = new ArrayList<Module>();
-        List<Module> fgVisible        = new ArrayList<Module>();
+        List<Mod> activeVisible    = new ArrayList<Mod>();
+        List<Mod> availableVisible = new ArrayList<Mod>();
+        List<Mod> fgVisible        = new ArrayList<Mod>();
 
         for (int i = 0; i < active.size(); i++) {
-            Module m = active.get(i);
+            Mod m = active.get(i);
             if (matchesFilter(m)) activeVisible.add(m);
         }
-        for (Module m : available) if (matchesFilter(m)) availableVisible.add(m);
-        for (Module m : frameGenModules) if (matchesFilter(m)) fgVisible.add(m);
+        for (Mod m : available) if (matchesFilter(m)) availableVisible.add(m);
+        for (Mod m : frameGenMods) if (matchesFilter(m)) fgVisible.add(m);
 
         boolean anyFilter = !mQuery.isEmpty() || mSelectedAuthor != null || mSelectedType != null;
 
-        if (active.isEmpty() && available.isEmpty() && frameGenModules.isEmpty()) {
-            TextView tv = Ui.text(this,
-								  "No hay filtros instalados.\nUsa el botón + en la pantalla principal para importar uno.",
-								  14, Ui.TEXT_TERTIARY, false);
+        if (active.isEmpty() && available.isEmpty() && frameGenMods.isEmpty()) {
+            TextView tv = Skin.text(this,
+									Lang.get(307),
+									14, Skin.TEXT_TERTIARY, false);
             tv.setGravity(Gravity.CENTER);
-            tv.setPadding(0, Ui.dp(this, 60), 0, 0);
+            tv.setPadding(0, Skin.dp(this, 60), 0, 0);
             mLlFilters.addView(tv);
             mTvCount.setText("0");
             return;
@@ -686,44 +674,44 @@ public class FiltersActivity extends Activity {
 
         if (anyFilter && activeVisible.isEmpty() && availableVisible.isEmpty()
             && fgVisible.isEmpty()) {
-            TextView tv = Ui.text(this, "No hay filtros que coincidan con la búsqueda",
-								  14, Ui.TEXT_TERTIARY, false);
+            TextView tv = Skin.text(this, Lang.get(308),
+									14, Skin.TEXT_TERTIARY, false);
             tv.setGravity(Gravity.CENTER);
-            tv.setPadding(0, Ui.dp(this, 60), 0, 0);
+            tv.setPadding(0, Skin.dp(this, 60), 0, 0);
             mLlFilters.addView(tv);
             mTvCount.setText(String.valueOf(active.size()));
             return;
         }
 
         if (!fgVisible.isEmpty()) {
-            mLlFilters.addView(sectionHeader("FRAME GENERATION (" + frameGenModules.size() + ")"));
-            for (Module m : fgVisible) mLlFilters.addView(buildFrameGenRow(m));
+            mLlFilters.addView(sectionHeader(Lang.f(309, frameGenMods.size())));
+            for (Mod m : fgVisible) mLlFilters.addView(frameGenRow(m));
         }
 
         if (!activeVisible.isEmpty()) {
-            mLlFilters.addView(sectionHeader("CADENA ACTIVA (" + active.size() + ")"));
+            mLlFilters.addView(sectionHeader(Lang.f(310, active.size())));
             for (int i = 0; i < active.size(); i++) {
-                Module m = active.get(i);
+                Mod m = active.get(i);
                 if (!matchesFilter(m)) continue;
-                mLlFilters.addView(buildRow(m, i, active.size(), true));
+                mLlFilters.addView(filterRow(m, i, active.size(), true));
             }
         }
 
         if (!availableVisible.isEmpty()) {
             int total  = availableVisible.size();
             int toShow = Math.min(total, mAvailableLimit);
-            mLlFilters.addView(sectionHeader("DISPONIBLES (" + available.size() + ")"));
+            mLlFilters.addView(sectionHeader(Lang.f(311, available.size())));
             for (int i = 0; i < toShow; i++)
-                mLlFilters.addView(buildRow(availableVisible.get(i), -1, 0, false));
+                mLlFilters.addView(filterRow(availableVisible.get(i), -1, 0, false));
 
             if (toShow < total) {
                 final int remaining = total - toShow;
-                TextView btn = Ui.text(this, "Mostrar más (" + remaining + " restantes)",
-									   13, Ui.ACCENT, true);
+                TextView btn = Skin.text(this, Lang.f(312, remaining),
+										 13, Skin.ACCENT, true);
                 btn.setGravity(Gravity.CENTER);
-                btn.setBackground(Ui.roundRectStroke(Ui.BG_ELEV, Ui.ACCENT_SOFT, this, 10, 1f));
-                int hp = Ui.dp(this, 16);
-                int vp = Ui.dp(this, 12);
+                btn.setBackground(Skin.roundRectStroke(Skin.BG_ELEV, Skin.ACCENT_SOFT, this, 10, 1f));
+                int hp = Skin.dp(this, 16);
+                int vp = Skin.dp(this, 12);
                 btn.setPadding(hp, vp, hp, vp);
                 btn.setClickable(true);
                 btn.setOnClickListener(new View.OnClickListener() {
@@ -732,8 +720,8 @@ public class FiltersActivity extends Activity {
                             rebuildList();
                         }
                     });
-                LinearLayout.LayoutParams lp = Ui.lp(MP, WC);
-                lp.topMargin = Ui.dp(this, 10);
+                LinearLayout.LayoutParams lp = Skin.lp(MP, WC);
+                lp.topMargin = Skin.dp(this, 10);
                 mLlFilters.addView(btn, lp);
             }
         }
@@ -742,81 +730,81 @@ public class FiltersActivity extends Activity {
     }
 
     private TextView sectionHeader(String s) {
-        TextView tv = Ui.text(this, s, 11, Ui.TEXT_TERTIARY, true);
+        TextView tv = Skin.text(this, s, 11, Skin.TEXT_TERTIARY, true);
         tv.setLetterSpacing(0.15f);
-        tv.setPadding(Ui.dp(this, 8), Ui.dp(this, 18), Ui.dp(this, 8), Ui.dp(this, 8));
+        tv.setPadding(Skin.dp(this, 8), Skin.dp(this, 18), Skin.dp(this, 8), Skin.dp(this, 8));
         return tv;
     }
 
-    private View buildRow(final Module module, final int position,
-                          final int activeCount, final boolean isActive) {
+    private View filterRow(final Mod module, final int position,
+						   final int activeCount, final boolean isActive) {
         FrameLayout outer = new FrameLayout(this);
-        LinearLayout.LayoutParams outerLp = Ui.lp(MP, WC);
-        outerLp.topMargin    = Ui.dp(this, 4);
-        outerLp.bottomMargin = Ui.dp(this, 4);
+        LinearLayout.LayoutParams outerLp = Skin.lp(MP, WC);
+        outerLp.topMargin    = Skin.dp(this, 4);
+        outerLp.bottomMargin = Skin.dp(this, 4);
         outer.setLayoutParams(outerLp);
-        outer.setBackground(Ui.roundRect(Ui.BG_ELEV, this, 14));
+        outer.setBackground(Skin.roundRect(Skin.BG_ELEV, this, 14));
 
         if (isActive) {
             View accentBar = new View(this);
-            accentBar.setBackground(buildAccentBar());
+            accentBar.setBackground(accentStripe());
             FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
-                Ui.dp(this, 3), FrameLayout.LayoutParams.MATCH_PARENT);
+                Skin.dp(this, 3), FrameLayout.LayoutParams.MATCH_PARENT);
             outer.addView(accentBar, barLp);
         }
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dp(this, 14);
-        int leftPad = isActive ? Ui.dp(this, 17) : pad;
+        int pad = Skin.dp(this, 14);
+        int leftPad = isActive ? Skin.dp(this, 17) : pad;
         row.setPadding(leftPad, pad, pad, pad);
         outer.addView(row, new FrameLayout.LayoutParams(MP, WC));
 
         if (isActive) {
-            TextView badge = Ui.text(this, String.valueOf(position + 1), 12, 0xFFFFFFFF, true);
+            TextView badge = Skin.text(this, String.valueOf(position + 1), 12, 0xFFFFFFFF, true);
             badge.setGravity(Gravity.CENTER);
-            badge.setBackground(Ui.roundRect(Ui.ACCENT, this, 6));
-            row.addView(badge, Ui.lp(Ui.dp(this, 26), Ui.dp(this, 26)));
+            badge.setBackground(Skin.roundRect(Skin.ACCENT, this, 6));
+            row.addView(badge, Skin.lp(Skin.dp(this, 26), Skin.dp(this, 26)));
         }
 
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams colLp = Ui.lp(0, WC, 1f);
-        colLp.leftMargin  = Ui.dp(this, isActive ? 12 : 0);
-        colLp.rightMargin = Ui.dp(this, 8);
+        LinearLayout.LayoutParams colLp = Skin.lp(0, WC, 1f);
+        colLp.leftMargin  = Skin.dp(this, isActive ? 12 : 0);
+        colLp.rightMargin = Skin.dp(this, 8);
         row.addView(col, colLp);
 
         LinearLayout nameRow = new LinearLayout(this);
         nameRow.setOrientation(LinearLayout.HORIZONTAL);
         nameRow.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView name = Ui.text(this, module.getName(), 15, Ui.TEXT_PRIMARY, true);
-        nameRow.addView(name, Ui.lp(WC, WC));
+        TextView name = Skin.text(this, module.getName(), 15, Skin.TEXT_PRIMARY, true);
+        nameRow.addView(name, Skin.lp(WC, WC));
 
-        if (module.getType() != Module.Type.MODIFIER) {
-            TextView typeChip = buildTypeChip(module.getType());
-            LinearLayout.LayoutParams chipLp = Ui.lp(WC, WC);
-            chipLp.leftMargin = Ui.dp(this, 8);
+        if (module.getType() != Mod.Type.MODIFIER) {
+            TextView typeChip = typeBadge(module.getType());
+            LinearLayout.LayoutParams chipLp = Skin.lp(WC, WC);
+            chipLp.leftMargin = Skin.dp(this, 8);
             nameRow.addView(typeChip, chipLp);
         }
         col.addView(nameRow);
 
-        String subtitle = "por " + module.getAuthor();
-        if (module.getVersion() != null && !module.getVersion().isEmpty()) {
-            subtitle += "  ·  v" + module.getVersion();
-        }
-        TextView author = Ui.text(this, subtitle, 12, Ui.TEXT_TERTIARY, false);
-        LinearLayout.LayoutParams authLp = Ui.lp(MP, WC);
-        authLp.topMargin = Ui.dp(this, 2);
+        String subtitle = (module.getVersion() != null && !module.getVersion().isEmpty())
+            ? Lang.f(314, module.getAuthor(), module.getVersion())
+            : Lang.f(313, module.getAuthor());
+        TextView author = Skin.text(this, subtitle, 12, Skin.TEXT_TERTIARY, false);
+        LinearLayout.LayoutParams authLp = Skin.lp(MP, WC);
+        authLp.topMargin = Skin.dp(this, 2);
         col.addView(author, authLp);
 
         if (!isActive && !module.getParamDefs().isEmpty()) {
-            TextView hint = Ui.text(this, "· " + module.getParamDefs().size() + " parámetro" +
-                                    (module.getParamDefs().size() == 1 ? "" : "s") + " configurables",
-                                    11, Ui.ACCENT, false);
-            LinearLayout.LayoutParams hintLp = Ui.lp(MP, WC);
-            hintLp.topMargin = Ui.dp(this, 3);
+            TextView hint = Skin.text(this,
+									  Lang.f(module.getParamDefs().size() == 1 ? 315 : 316,
+											 module.getParamDefs().size()),
+									  11, Skin.ACCENT, false);
+            LinearLayout.LayoutParams hintLp = Skin.lp(MP, WC);
+            hintLp.topMargin = Skin.dp(this, 3);
             col.addView(hint, hintLp);
         }
 
@@ -830,8 +818,8 @@ public class FiltersActivity extends Activity {
                             rebuildList();
                         }
                     });
-                LinearLayout.LayoutParams lpU = Ui.lp(Ui.dp(this, 36), Ui.dp(this, 36));
-                lpU.rightMargin = Ui.dp(this, 4);
+                LinearLayout.LayoutParams lpU = Skin.lp(Skin.dp(this, 36), Skin.dp(this, 36));
+                lpU.rightMargin = Skin.dp(this, 4);
                 row.addView(up, lpU);
             }
             if (position < activeCount - 1) {
@@ -843,8 +831,8 @@ public class FiltersActivity extends Activity {
                             rebuildList();
                         }
                     });
-                LinearLayout.LayoutParams lpD = Ui.lp(Ui.dp(this, 36), Ui.dp(this, 36));
-                lpD.rightMargin = Ui.dp(this, 4);
+                LinearLayout.LayoutParams lpD = Skin.lp(Skin.dp(this, 36), Skin.dp(this, 36));
+                lpD.rightMargin = Skin.dp(this, 4);
                 row.addView(down, lpD);
             }
         }
@@ -852,17 +840,17 @@ public class FiltersActivity extends Activity {
         if (!module.getParamDefs().isEmpty()) {
             boolean hasCustomParams = hasModifiedParams(module);
             FrameLayout gearWrapper = new FrameLayout(this);
-            LinearLayout.LayoutParams gwLp = Ui.lp(Ui.dp(this, 40), Ui.dp(this, 40));
-            gwLp.rightMargin = Ui.dp(this, 4);
+            LinearLayout.LayoutParams gwLp = Skin.lp(Skin.dp(this, 40), Skin.dp(this, 40));
+            gwLp.rightMargin = Skin.dp(this, 4);
 
             TextView gear = makeIconButton("\u2699");
             gear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-            gear.setTextColor(hasCustomParams ? Ui.ACCENT : Ui.TEXT_SECOND);
-            gear.setBackground(Ui.buttonBgStroke(
+            gear.setTextColor(hasCustomParams ? Skin.ACCENT : Skin.TEXT_SECOND);
+            gear.setBackground(Skin.buttonBgStroke(
 								   this,
-								   hasCustomParams ? Ui.ACCENT_SOFT : Ui.BG_ELEV,
-								   hasCustomParams ? Ui.ACCENT_SOFT : Ui.DIVIDER,
-								   hasCustomParams ? Ui.ACCENT      : Ui.DIVIDER,
+								   hasCustomParams ? Skin.ACCENT_SOFT : Skin.BG_ELEV,
+								   hasCustomParams ? Skin.ACCENT_SOFT : Skin.DIVIDER,
+								   hasCustomParams ? Skin.ACCENT      : Skin.DIVIDER,
 								   22, 1f));
             gear.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) { showParamsDialog(module); }
@@ -871,12 +859,12 @@ public class FiltersActivity extends Activity {
 
             if (hasCustomParams) {
                 View dot = new View(this);
-                dot.setBackground(Ui.circle(Ui.ACCENT));
+                dot.setBackground(Skin.circle(Skin.ACCENT));
                 FrameLayout.LayoutParams dotLp = new FrameLayout.LayoutParams(
-                    Ui.dp(this, 8), Ui.dp(this, 8));
+                    Skin.dp(this, 8), Skin.dp(this, 8));
                 dotLp.gravity  = Gravity.TOP | Gravity.END;
-                dotLp.topMargin   = Ui.dp(this, 2);
-                dotLp.rightMargin = Ui.dp(this, 2);
+                dotLp.topMargin   = Skin.dp(this, 2);
+                dotLp.rightMargin = Skin.dp(this, 2);
                 gearWrapper.addView(dot, dotLp);
             }
             row.addView(gearWrapper, gwLp);
@@ -890,9 +878,9 @@ public class FiltersActivity extends Activity {
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                     if (module.isEnabled() == isChecked) return;
                     if (isChecked) {
-                        handleToggleOn(module, buttonView);
+                        turnOn(module, buttonView);
                     } else {
-                        handleToggleOff(module);
+                        turnOff(module);
                     }
                 }
             });
@@ -900,86 +888,85 @@ public class FiltersActivity extends Activity {
         return outer;
     }
 
-    private View buildFrameGenRow(final Module module) {
-        final boolean isActiveFg = (mModuleManager.getActiveFrameGenModule() == module);
+    private View frameGenRow(final Mod module) {
+        final boolean isActiveFg = (mMods.getActiveFgMod() == module);
 
         FrameLayout outer = new FrameLayout(this);
-        LinearLayout.LayoutParams outerLp = Ui.lp(MP, WC);
-        outerLp.topMargin    = Ui.dp(this, 4);
-        outerLp.bottomMargin = Ui.dp(this, 4);
+        LinearLayout.LayoutParams outerLp = Skin.lp(MP, WC);
+        outerLp.topMargin    = Skin.dp(this, 4);
+        outerLp.bottomMargin = Skin.dp(this, 4);
         outer.setLayoutParams(outerLp);
-        outer.setBackground(Ui.roundRect(Ui.BG_ELEV, this, 14));
+        outer.setBackground(Skin.roundRect(Skin.BG_ELEV, this, 14));
 
         if (isActiveFg) {
             View accentBar = new View(this);
-            accentBar.setBackground(buildAccentBar());
+            accentBar.setBackground(accentStripe());
             FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
-                Ui.dp(this, 3), FrameLayout.LayoutParams.MATCH_PARENT);
+                Skin.dp(this, 3), FrameLayout.LayoutParams.MATCH_PARENT);
             outer.addView(accentBar, barLp);
         }
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dp(this, 14);
-        int leftPad = isActiveFg ? Ui.dp(this, 17) : pad;
+        int pad = Skin.dp(this, 14);
+        int leftPad = isActiveFg ? Skin.dp(this, 17) : pad;
         row.setPadding(leftPad, pad, pad, pad);
         outer.addView(row, new FrameLayout.LayoutParams(MP, WC));
 
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams colLp = Ui.lp(0, WC, 1f);
-        colLp.rightMargin = Ui.dp(this, 8);
+        LinearLayout.LayoutParams colLp = Skin.lp(0, WC, 1f);
+        colLp.rightMargin = Skin.dp(this, 8);
         row.addView(col, colLp);
 
         LinearLayout nameRow = new LinearLayout(this);
         nameRow.setOrientation(LinearLayout.HORIZONTAL);
         nameRow.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView name = Ui.text(this, module.getName(), 15, Ui.TEXT_PRIMARY, true);
-        nameRow.addView(name, Ui.lp(WC, WC));
+        TextView name = Skin.text(this, module.getName(), 15, Skin.TEXT_PRIMARY, true);
+        nameRow.addView(name, Skin.lp(WC, WC));
 
-        TextView typeChip = buildTypeChip(module.getType());
-        LinearLayout.LayoutParams chipLp = Ui.lp(WC, WC);
-        chipLp.leftMargin = Ui.dp(this, 8);
+        TextView typeChip = typeBadge(module.getType());
+        LinearLayout.LayoutParams chipLp = Skin.lp(WC, WC);
+        chipLp.leftMargin = Skin.dp(this, 8);
         nameRow.addView(typeChip, chipLp);
 
         if (isActiveFg) {
-            TextView chip = Ui.text(this, "EN USO", 9, 0xFF4ADE80, true);
+            TextView chip = Skin.text(this, Lang.get(317), 9, 0xFF4ADE80, true);
             chip.setLetterSpacing(0.10f);
-            chip.setBackground(Ui.roundRect(0xFF1A3A2A, this, 4));
-            int hp = Ui.dp(this, 6);
-            int vp = Ui.dp(this, 3);
+            chip.setBackground(Skin.roundRect(0xFF1A3A2A, this, 4));
+            int hp = Skin.dp(this, 6);
+            int vp = Skin.dp(this, 3);
             chip.setPadding(hp, vp, hp, vp);
-            LinearLayout.LayoutParams chipLp2 = Ui.lp(WC, WC);
-            chipLp2.leftMargin = Ui.dp(this, 6);
+            LinearLayout.LayoutParams chipLp2 = Skin.lp(WC, WC);
+            chipLp2.leftMargin = Skin.dp(this, 6);
             nameRow.addView(chip, chipLp2);
         }
         col.addView(nameRow);
 
-        String subtitle = "por " + module.getAuthor();
-        if (module.getVersion() != null && !module.getVersion().isEmpty()) {
-            subtitle += "  ·  v" + module.getVersion();
-        }
-        TextView author = Ui.text(this, subtitle, 12, Ui.TEXT_TERTIARY, false);
-        LinearLayout.LayoutParams authLp = Ui.lp(MP, WC);
-        authLp.topMargin = Ui.dp(this, 2);
+        String subtitle = (module.getVersion() != null && !module.getVersion().isEmpty())
+            ? Lang.f(314, module.getAuthor(), module.getVersion())
+            : Lang.f(313, module.getAuthor());
+        TextView author = Skin.text(this, subtitle, 12, Skin.TEXT_TERTIARY, false);
+        LinearLayout.LayoutParams authLp = Skin.lp(MP, WC);
+        authLp.topMargin = Skin.dp(this, 2);
         col.addView(author, authLp);
 
         if (!module.getParamDefs().isEmpty()) {
             boolean hasCustomParams = hasModifiedParams(module);
             FrameLayout gearWrapper = new FrameLayout(this);
-            LinearLayout.LayoutParams gwLp = Ui.lp(Ui.dp(this, 40), Ui.dp(this, 40));
-            gwLp.rightMargin = Ui.dp(this, 4);
+            LinearLayout.LayoutParams gwLp = Skin.lp(Skin.dp(this, 40), Skin.dp(this, 40));
+            gwLp.rightMargin = Skin.dp(this, 4);
 
             TextView gear = makeIconButton("\u2699");
             gear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-            gear.setTextColor(hasCustomParams ? Ui.ACCENT : Ui.TEXT_SECOND);
-            gear.setBackground(Ui.buttonBgStroke(
+            gear.setTextColor(hasCustomParams ? Skin.ACCENT : Skin.TEXT_SECOND);
+            gear.setBackground(Skin.buttonBgStroke(
 								   this,
-								   hasCustomParams ? Ui.ACCENT_SOFT : Ui.BG_ELEV,
-								   hasCustomParams ? Ui.ACCENT_SOFT : Ui.DIVIDER,
-								   hasCustomParams ? Ui.ACCENT      : Ui.DIVIDER,
+								   hasCustomParams ? Skin.ACCENT_SOFT : Skin.BG_ELEV,
+								   hasCustomParams ? Skin.ACCENT_SOFT : Skin.DIVIDER,
+								   hasCustomParams ? Skin.ACCENT      : Skin.DIVIDER,
 								   22, 1f));
             gear.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) { showParamsDialog(module); }
@@ -988,12 +975,12 @@ public class FiltersActivity extends Activity {
 
             if (hasCustomParams) {
                 View dot = new View(this);
-                dot.setBackground(Ui.circle(Ui.ACCENT));
+                dot.setBackground(Skin.circle(Skin.ACCENT));
                 FrameLayout.LayoutParams dotLp = new FrameLayout.LayoutParams(
-                    Ui.dp(this, 8), Ui.dp(this, 8));
+                    Skin.dp(this, 8), Skin.dp(this, 8));
                 dotLp.gravity  = Gravity.TOP | Gravity.END;
-                dotLp.topMargin   = Ui.dp(this, 2);
-                dotLp.rightMargin = Ui.dp(this, 2);
+                dotLp.topMargin   = Skin.dp(this, 2);
+                dotLp.rightMargin = Skin.dp(this, 2);
                 gearWrapper.addView(dot, dotLp);
             }
             row.addView(gearWrapper, gwLp);
@@ -1007,9 +994,9 @@ public class FiltersActivity extends Activity {
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                     if (module.isEnabled() == isChecked) return;
                     if (isChecked) {
-                        handleToggleOn(module, buttonView);
+                        turnOn(module, buttonView);
                     } else {
-                        handleToggleOff(module);
+                        turnOff(module);
                     }
                 }
             });
@@ -1017,19 +1004,19 @@ public class FiltersActivity extends Activity {
         return outer;
     }
 
-    private Drawable buildAccentBar() {
+    private Drawable accentStripe() {
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.RECTANGLE);
-        d.setColor(Ui.ACCENT);
-        float r = Ui.dp(this, 3);
+        d.setColor(Skin.ACCENT);
+        float r = Skin.dp(this, 3);
         d.setCornerRadii(new float[]{0, 0, r, r, r, r, 0, 0});
         return d;
     }
 
-    private TextView buildTypeChip(Module.Type type) {
+    private TextView typeBadge(Mod.Type type) {
         int chipColor;
         String label;
-        int textColor = Ui.ACCENT;
+        int textColor = Skin.ACCENT;
         switch (type) {
             case FRAMEGEN:
                 chipColor = 0xFF1A3A2A;
@@ -1046,26 +1033,26 @@ public class FiltersActivity extends Activity {
                 label = "RENDERER";
                 break;
             default:
-                chipColor = Ui.ACCENT_SOFT;
+                chipColor = Skin.ACCENT_SOFT;
                 label = "MOD";
         }
         TextView chip = new TextView(this);
         chip.setText(label);
         chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9);
         chip.setTextColor(textColor);
-        chip.setTypeface(Ui.medium());
+        chip.setTypeface(Skin.medium());
         chip.setLetterSpacing(0.12f);
-        chip.setBackground(Ui.roundRect(chipColor, this, 4));
-        int hp = Ui.dp(this, 6);
-        int vp = Ui.dp(this, 3);
+        chip.setBackground(Skin.roundRect(chipColor, this, 4));
+        int hp = Skin.dp(this, 6);
+        int vp = Skin.dp(this, 3);
         chip.setPadding(hp, vp, hp, vp);
         return chip;
     }
 
-    private boolean hasModifiedParams(Module module) {
+    private boolean hasModifiedParams(Mod module) {
         Map<String, Float>           params = module.getParams();
-        Map<String, Module.ParamDef> defs   = module.getParamDefs();
-        for (Map.Entry<String, Module.ParamDef> e : defs.entrySet()) {
+        Map<String, Mod.Param> defs   = module.getParamDefs();
+        for (Map.Entry<String, Mod.Param> e : defs.entrySet()) {
             Float current = params.get(e.getKey());
             if (current != null && Math.abs(current - e.getValue().defaultValue) > 0.0001f) {
                 return true;
@@ -1075,33 +1062,33 @@ public class FiltersActivity extends Activity {
     }
 
     private void moveInChain(int from, int to) {
-        List<Module> active = mModuleManager.getEnabledChain();
+        List<Mod> active = mMods.getEnabledChain();
         if (from < 0 || from >= active.size()) return;
         if (to   < 0 || to   >= active.size()) return;
         List<String> names = new ArrayList<String>();
-        for (Module m : active) names.add(m.getName());
+        for (Mod m : active) names.add(m.getName());
         String moved = names.remove(from);
         names.add(to, moved);
-        mModuleManager.setChainOrder(names);
+        mMods.setChainOrder(names);
         mChanged = true;
     }
 
-    private void showParamsDialog(final Module module) {
+    private void showParamsDialog(final Mod module) {
         if (module.getParamDefs().isEmpty()) return;
 
-        final Map<String, Module.ParamDef> defs    = module.getParamDefs();
+        final Map<String, Mod.Param> defs    = module.getParamDefs();
         final Map<String, Float>           current = module.getParams();
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
-        int pad = Ui.dp(this, 20);
+        int pad = Skin.dp(this, 20);
         container.setPadding(pad, pad, pad, pad);
         scroll.addView(container, new FrameLayout.LayoutParams(MP, WC));
 
-        for (final Map.Entry<String, Module.ParamDef> entry : defs.entrySet()) {
+        for (final Map.Entry<String, Mod.Param> entry : defs.entrySet()) {
             final String uniformName = entry.getKey();
-            final Module.ParamDef def = entry.getValue();
+            final Mod.Param def = entry.getValue();
             float initialValue = current.containsKey(uniformName)
                 ? current.get(uniformName) : def.defaultValue;
             final boolean isModified = Math.abs(initialValue - def.defaultValue) > 0.0001f;
@@ -1109,10 +1096,10 @@ public class FiltersActivity extends Activity {
             LinearLayout labelRow = new LinearLayout(this);
             labelRow.setOrientation(LinearLayout.HORIZONTAL);
             labelRow.setGravity(Gravity.CENTER_VERTICAL);
-            labelRow.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 4));
+            labelRow.setPadding(0, Skin.dp(this, 8), 0, Skin.dp(this, 4));
 
-            final TextView label = Ui.text(this, "", 14,
-										   isModified ? Ui.ACCENT : Ui.TEXT_PRIMARY, false);
+            final TextView label = Skin.text(this, "", 14,
+											 isModified ? Skin.ACCENT : Skin.TEXT_PRIMARY, false);
             final float range = def.max - def.min;
             final boolean showDecimal = range <= 10f;
             final int maxProgress = (range <= 100f)
@@ -1120,11 +1107,11 @@ public class FiltersActivity extends Activity {
                 : Math.max(1, (int)Math.round(range));
 
             updateParamLabel(label, def.label, initialValue, showDecimal, isModified);
-            labelRow.addView(label, Ui.lp(0, WC, 1f));
+            labelRow.addView(label, Skin.lp(0, WC, 1f));
 
-            final TextView resetBtn = Ui.text(this, "\u21BA", 16, Ui.TEXT_TERTIARY, false);
+            final TextView resetBtn = Skin.text(this, "\u21BA", 16, Skin.TEXT_TERTIARY, false);
             resetBtn.setGravity(Gravity.CENTER);
-            resetBtn.setPadding(Ui.dp(this, 8), 0, 0, 0);
+            resetBtn.setPadding(Skin.dp(this, 8), 0, 0, 0);
             resetBtn.setVisibility(isModified ? View.VISIBLE : View.INVISIBLE);
             labelRow.addView(resetBtn);
             container.addView(labelRow);
@@ -1136,10 +1123,10 @@ public class FiltersActivity extends Activity {
                     @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                         float value = def.min + (progress / (float) maxProgress) * range;
                         boolean mod = Math.abs(value - def.defaultValue) > 0.0001f;
-                        label.setTextColor(mod ? Ui.ACCENT : Ui.TEXT_PRIMARY);
+                        label.setTextColor(mod ? Skin.ACCENT : Skin.TEXT_PRIMARY);
                         updateParamLabel(label, def.label, value, showDecimal, mod);
                         resetBtn.setVisibility(mod ? View.VISIBLE : View.INVISIBLE);
-                        mModuleManager.setParamValue(module, uniformName, value);
+                        mMods.setParamValue(module, uniformName, value);
                         mChanged = true;
                     }
                     @Override public void onStartTrackingTouch(SeekBar sb) {}
@@ -1148,14 +1135,14 @@ public class FiltersActivity extends Activity {
             container.addView(seekBar);
 
             final SeekBar seekBarRef = seekBar;
-            final Module.ParamDef defRef = def;
+            final Mod.Param defRef = def;
             final String uniformRef = uniformName;
             resetBtn.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        mModuleManager.setParamValue(module, uniformRef, defRef.defaultValue);
+                        mMods.setParamValue(module, uniformRef, defRef.defaultValue);
                         int prog = Math.round((defRef.defaultValue - defRef.min) / range * maxProgress);
                         seekBarRef.setProgress(prog);
-                        label.setTextColor(Ui.TEXT_PRIMARY);
+                        label.setTextColor(Skin.TEXT_PRIMARY);
                         updateParamLabel(label, defRef.label, defRef.defaultValue, showDecimal, false);
                         resetBtn.setVisibility(View.INVISIBLE);
                         mChanged = true;
@@ -1164,67 +1151,67 @@ public class FiltersActivity extends Activity {
 
             LinearLayout minMax = new LinearLayout(this);
             minMax.setOrientation(LinearLayout.HORIZONTAL);
-            TextView tvMin = Ui.text(this,
-									 showDecimal ? String.format("%.2f", def.min) : String.valueOf((int) def.min),
-									 11, Ui.TEXT_TERTIARY, false);
+            TextView tvMin = Skin.text(this,
+									   showDecimal ? String.format("%.2f", def.min) : String.valueOf((int) def.min),
+									   11, Skin.TEXT_TERTIARY, false);
             String defaultLabel = showDecimal
-                ? String.format("default: %.2f", def.defaultValue)
-                : "default: " + (int) def.defaultValue;
-            TextView tvDefault = Ui.text(this, defaultLabel, 10, Ui.TEXT_TERTIARY, false);
+                ? Lang.f(338, String.format("%.2f", def.defaultValue))
+                : Lang.f(338, String.valueOf((int) def.defaultValue));
+            TextView tvDefault = Skin.text(this, defaultLabel, 10, Skin.TEXT_TERTIARY, false);
             tvDefault.setGravity(Gravity.CENTER);
-            TextView tvMax = Ui.text(this,
-									 showDecimal ? String.format("%.2f", def.max) : String.valueOf((int) def.max),
-									 11, Ui.TEXT_TERTIARY, false);
-            minMax.addView(tvMin, Ui.lp(0, WC, 1f));
-            minMax.addView(tvDefault, Ui.lp(0, WC, 1f));
+            TextView tvMax = Skin.text(this,
+									   showDecimal ? String.format("%.2f", def.max) : String.valueOf((int) def.max),
+									   11, Skin.TEXT_TERTIARY, false);
+            minMax.addView(tvMin, Skin.lp(0, WC, 1f));
+            minMax.addView(tvDefault, Skin.lp(0, WC, 1f));
             minMax.addView(tvMax);
-            LinearLayout.LayoutParams mmLp = Ui.lp(MP, WC);
-            mmLp.bottomMargin = Ui.dp(this, 14);
+            LinearLayout.LayoutParams mmLp = Skin.lp(MP, WC);
+            mmLp.bottomMargin = Skin.dp(this, 14);
             container.addView(minMax, mmLp);
         }
 
         new AlertDialog.Builder(this)
-            .setTitle(module.getName() + " — Ajustes")
+            .setTitle(Lang.f(328, module.getName()))
             .setView(scroll)
-            .setPositiveButton("Cerrar", null)
-            .setNeutralButton("Restablecer todo", new DialogInterface.OnClickListener() {
+            .setPositiveButton(Lang.get(323), null)
+            .setNeutralButton(Lang.get(327), new DialogInterface.OnClickListener() {
                 @Override public void onClick(DialogInterface d, int w) {
-                    for (Map.Entry<String, Module.ParamDef> e : defs.entrySet()) {
-                        mModuleManager.setParamValue(module, e.getKey(), e.getValue().defaultValue);
+                    for (Map.Entry<String, Mod.Param> e : defs.entrySet()) {
+                        mMods.setParamValue(module, e.getKey(), e.getValue().defaultValue);
                     }
                     mChanged = true;
-                    Toast.makeText(FiltersActivity.this,
-								   module.getName() + ": parámetros restablecidos",
+                    Toast.makeText(MyFiltersActivity.this,
+								   Lang.f(326, module.getName()),
 								   Toast.LENGTH_SHORT).show();
                 }
             })
             .show();
     }
 
-    private void showShaderErrorDialog(final Module module, String err) {
+    private void showShaderErrorDialog(final Mod module, String err) {
         TextView tv = new TextView(this);
         tv.setText(err);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        tv.setTextColor(Ui.TEXT_PRIMARY);
+        tv.setTextColor(Skin.TEXT_PRIMARY);
         tv.setTypeface(Typeface.MONOSPACE);
         tv.setTextIsSelectable(true);
-        int p = Ui.dp(this, 18);
+        int p = Skin.dp(this, 18);
         tv.setPadding(p, p, p, p);
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(tv, new FrameLayout.LayoutParams(MP, WC));
 
         new AlertDialog.Builder(this)
-            .setTitle("No se puede activar: " + module.getName())
+            .setTitle(Lang.f(322, module.getName()))
             .setView(scroll)
-            .setPositiveButton("Cerrar", null)
-            .setNeutralButton("Desinstalar", new DialogInterface.OnClickListener() {
+            .setPositiveButton(Lang.get(323), null)
+            .setNeutralButton(Lang.get(324), new DialogInterface.OnClickListener() {
                 @Override public void onClick(DialogInterface d, int w) {
-                    mModuleManager.uninstall(module);
+                    mMods.uninstall(module);
                     mChanged = true;
                     rebuildList();
-                    Toast.makeText(FiltersActivity.this,
-                                   module.getName() + " desinstalado",
+                    Toast.makeText(MyFiltersActivity.this,
+                                   Lang.f(325, module.getName()),
                                    Toast.LENGTH_SHORT).show();
                 }
             })
@@ -1238,37 +1225,37 @@ public class FiltersActivity extends Activity {
         tv.setText(label + ": " + v + mod);
     }
 
-    private View buildFpsOverlayRow() {
+    private View fpsRow() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int side = Ui.dp(this, 16);
-        int vert = Ui.dp(this, 8);
+        int side = Skin.dp(this, 16);
+        int vert = Skin.dp(this, 8);
         row.setPadding(side, vert, side, vert);
-        row.setBackground(Ui.roundRect(Ui.BG_SURFACE, this, 12));
+        row.setBackground(Skin.roundRect(Skin.BG_SURFACE, this, 12));
 
-        LinearLayout.LayoutParams rowLp = Ui.lp(MP, WC);
-        rowLp.leftMargin = rowLp.rightMargin = Ui.dp(this, 14);
-        rowLp.bottomMargin = Ui.dp(this, 6);
+        LinearLayout.LayoutParams rowLp = Skin.lp(MP, WC);
+        rowLp.leftMargin = rowLp.rightMargin = Skin.dp(this, 14);
+        rowLp.bottomMargin = Skin.dp(this, 6);
         row.setLayoutParams(rowLp);
 
-        TextView title = Ui.text(this, "Overlay de FPS", 14, Ui.TEXT_PRIMARY, true);
-        row.addView(title, Ui.lp(0, WC, 1f));
+        TextView title = Skin.text(this, Lang.get(329), 14, Skin.TEXT_PRIMARY, true);
+        row.addView(title, Skin.lp(0, WC, 1f));
 
-        mBtnFpsPosition = Ui.text(this, "\uD83D\uDCCD", 18, Ui.TEXT_PRIMARY, false);
+        mBtnFpsPosition = Skin.text(this, "\uD83D\uDCCD", 18, Skin.TEXT_PRIMARY, false);
         mBtnFpsPosition.setGravity(Gravity.CENTER);
-        mBtnFpsPosition.setBackground(Ui.buttonBgStroke(
-										  this, Ui.BG_ELEV, Ui.ACCENT_SOFT, Ui.DIVIDER, 22, 1f));
+        mBtnFpsPosition.setBackground(Skin.buttonBgStroke(
+										  this, Skin.BG_ELEV, Skin.ACCENT_SOFT, Skin.DIVIDER, 22, 1f));
         mBtnFpsPosition.setClickable(true);
         mBtnFpsPosition.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     startActivityForResult(
-                        new Intent(FiltersActivity.this, FpsPositionActivity.class),
+                        new Intent(MyFiltersActivity.this, MoveFpsActivity.class),
                         REQ_FPS_POSITION);
                 }
             });
-        LinearLayout.LayoutParams btnLp = Ui.lp(Ui.dp(this, 40), Ui.dp(this, 40));
-        btnLp.rightMargin = Ui.dp(this, 8);
+        LinearLayout.LayoutParams btnLp = Skin.lp(Skin.dp(this, 40), Skin.dp(this, 40));
+        btnLp.rightMargin = Skin.dp(this, 8);
         row.addView(mBtnFpsPosition, btnLp);
 
         final Switch sw = new Switch(this);
@@ -1283,20 +1270,20 @@ public class FiltersActivity extends Activity {
                         .edit().putBoolean(PREF_FPS_OVERLAY, isChecked).commit();
                     sendFpsOverlayBroadcast(isChecked);
                     mChanged = true;
-                    updateFpsPositionButtonState();
+                    updateFpsBtn();
                 }
             });
         mFpsSwitch = sw;
         row.addView(sw);
 
-        updateFpsPositionButtonState();
+        updateFpsBtn();
         return row;
     }
 
-    private void updateFpsPositionButtonState() {
+    private void updateFpsBtn() {
         if (mBtnFpsPosition == null) return;
         mBtnFpsPosition.setEnabled(mFpsOverlay);
-        mBtnFpsPosition.setTextColor(mFpsOverlay ? Ui.TEXT_PRIMARY : Ui.TEXT_TERTIARY);
+        mBtnFpsPosition.setTextColor(mFpsOverlay ? Skin.TEXT_PRIMARY : Skin.TEXT_TERTIARY);
     }
 
     private void sendFpsOverlayBroadcast(boolean enabled) {

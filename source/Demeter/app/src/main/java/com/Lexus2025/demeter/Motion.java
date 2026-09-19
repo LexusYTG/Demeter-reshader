@@ -38,9 +38,9 @@ package com.Lexus2025.demeter;
 import android.graphics.Bitmap;
 import android.util.Log;
 
-public final class MotionEstimator {
+public final class Motion {
 
-    private static final String TAG = "MotionEstimator";
+    private static final String TAG = "Motion";
 
     public static final int MOTION_MAP_W = 32;
     public static final int MOTION_MAP_H = 18;
@@ -49,7 +49,7 @@ public final class MotionEstimator {
     private static final int PATCH_RADIUS  = 1;
     private static final int SEARCH_RADIUS = 2;
 
-    private MotionEstimator() {}
+    private Motion() {}
 
     public static Bitmap downsample(Bitmap src) {
         return Bitmap.createScaledBitmap(src, DS_W, DS_H, false);

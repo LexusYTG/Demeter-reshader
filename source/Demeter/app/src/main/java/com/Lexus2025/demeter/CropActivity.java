@@ -54,7 +54,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-public class CaptureAreaActivity extends Activity {
+public class CropActivity extends Activity {
 
     public static final String RESULT_LEFT   = CaptureService.EXTRA_CAPTURE_LEFT;
     public static final String RESULT_TOP    = CaptureService.EXTRA_CAPTURE_TOP;
@@ -64,12 +64,13 @@ public class CaptureAreaActivity extends Activity {
     private static final int MIN_SIZE_DP = 48;
 
     private int mScreenW, mScreenH, mMinPx;
-    private SelectionView mSelView;
+    private CropView mSelView;
     private TextView mTvInfo;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Lang.init(this);
 
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(
@@ -93,7 +94,7 @@ public class CaptureAreaActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(0xCC000000);
 
-        mSelView = new SelectionView(this);
+        mSelView = new CropView(this);
         root.addView(mSelView, new FrameLayout.LayoutParams(
 						 FrameLayout.LayoutParams.MATCH_PARENT,
 						 FrameLayout.LayoutParams.MATCH_PARENT));
@@ -106,13 +107,13 @@ public class CaptureAreaActivity extends Activity {
         mTvInfo = new TextView(this);
         mTvInfo.setTextColor(Color.WHITE);
         mTvInfo.setTextSize(13f);
-        mTvInfo.setText("Arrastra para seleccionar el área a capturar");
+        mTvInfo.setText(Lang.get(150));
         LinearLayout.LayoutParams tvParams = new LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         panel.addView(mTvInfo, tvParams);
 
         Button btnFull = new Button(this);
-        btnFull.setText("Completa");
+        btnFull.setText(Lang.get(151));
         btnFull.setOnClickListener(new View.OnClickListener() {
 				@Override public void onClick(View v) {
 					mSelView.setSelection(new Rect(0, 0, mScreenW, mScreenH));
@@ -121,14 +122,14 @@ public class CaptureAreaActivity extends Activity {
         panel.addView(btnFull);
 
         Button btnReset = new Button(this);
-        btnReset.setText("Reset");
+        btnReset.setText(Lang.get(152));
         btnReset.setOnClickListener(new View.OnClickListener() {
 				@Override public void onClick(View v) { mSelView.reset(); }
 			});
         panel.addView(btnReset);
 
         Button btnOk = new Button(this);
-        btnOk.setText("Confirmar");
+        btnOk.setText(Lang.get(153));
         btnOk.setOnClickListener(new View.OnClickListener() {
 				@Override public void onClick(View v) { confirmSelection(); }
 			});
@@ -172,7 +173,7 @@ public class CaptureAreaActivity extends Activity {
         finish();
     }
 
-    private class SelectionView extends View {
+    private class CropView extends View {
 
         private final Paint mDimPaint;
         private final Paint mBorderPaint;
@@ -194,7 +195,7 @@ public class CaptureAreaActivity extends Activity {
         private final int mHandleR;
         private final int mEdgeHit;
 
-        SelectionView(Context ctx) {
+        CropView(Context ctx) {
             super(ctx);
             float d = getResources().getDisplayMetrics().density;
             mHandleR = (int)(22 * d);
@@ -373,7 +374,7 @@ public class CaptureAreaActivity extends Activity {
         private void updateInfo() {
             if (mTvInfo == null) return;
             if (mSel == null || mSel.isEmpty()) {
-                mTvInfo.setText("Arrastra para seleccionar el área a capturar");
+                mTvInfo.setText(Lang.get(150));
             } else {
                 mTvInfo.setText(mSel.left + "," + mSel.top
 								+ " → " + mSel.right + "," + mSel.bottom

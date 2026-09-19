@@ -44,7 +44,7 @@ import android.util.TypedValue;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-public final class Ui {
+public final class Skin {
 
     public static final int BG_ROOT       = 0xFF0F1115;
     public static final int BG_SURFACE    = 0xFF171A21;
@@ -59,7 +59,7 @@ public final class Ui {
     public static final int SUCCESS       = 0xFF4ADE80;
     public static final int DANGER        = 0xFFF87171;
 
-    private Ui() {}
+    private Skin() {}
 
     public static Typeface medium() {
         return Typeface.create("sans-serif-medium", Typeface.NORMAL);

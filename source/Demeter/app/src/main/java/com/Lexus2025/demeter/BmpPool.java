@@ -43,19 +43,19 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 
-public final class BitmapPool {
+public final class BmpPool {
 
-    private static final String TAG = "BitmapPool";
+    private static final String TAG = "BmpPool";
     private static final int MAX_PER_SIZE = 6;
 
     private static final Map<String, Deque<Bitmap>> sPool =
 	new HashMap<String, Deque<Bitmap>>();
 
-    private BitmapPool() {}
+    private BmpPool() {}
 
     public static synchronized Bitmap acquire(int w, int h) {
         if (w <= 0 || h <= 0) {
-            throw new IllegalArgumentException("BitmapPool.acquire: size inválido " + w + "x" + h);
+            throw new IllegalArgumentException("BmpPool.acquire: size inválido " + w + "x" + h);
         }
         String key = key(w, h);
         Deque<Bitmap> q = sPool.get(key);

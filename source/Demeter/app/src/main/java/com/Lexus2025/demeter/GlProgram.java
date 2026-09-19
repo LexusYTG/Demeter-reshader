@@ -58,9 +58,9 @@ import javax.microedition.khronos.egl.EGLContext;
 import javax.microedition.khronos.egl.EGLDisplay;
 import javax.microedition.khronos.egl.EGLSurface;
 
-public class ShaderFilter {
+public class GlProgram {
 
-    private static final String TAG = "ShaderFilter";
+    private static final String TAG = "GlProgram";
 
     // ========================================================================
     // Excepción estructurada para fallos de compilación
@@ -119,15 +119,15 @@ public class ShaderFilter {
     // ========================================================================
     // Validación GLSL pre-compilación (sin contexto GL)
     // ========================================================================
-    public static final class Validator {
+    public static final class Checker {
 
-        public static final class Result {
+        public static final class Report {
             public final String       source;
             public final String       error;
             public final boolean      requiresEs3;
             public final List<String> warnings;
 
-            Result(String source, String error, boolean requiresEs3, List<String> warnings) {
+            Report(String source, String error, boolean requiresEs3, List<String> warnings) {
                 this.source      = source;
                 this.error       = error;
                 this.requiresEs3 = requiresEs3;
@@ -144,14 +144,14 @@ public class ShaderFilter {
 
         private static final Pattern MAIN_FUNC = Pattern.compile("\\bvoid\\s+main\\s*\\(");
 
-        private Validator() {}
+        private Checker() {}
 
-        public static Result validate(String source, boolean isVertex, boolean es3Available) {
+        public static Report validate(String source, boolean isVertex, boolean es3Available) {
             List<String> warnings = new ArrayList<String>();
             String kindName = isVertex ? "vertex" : "fragment";
 
             if (source == null || source.trim().isEmpty()) {
-                return new Result(source,
+                return new Report(source,
 								  "El código del " + kindName + " shader está vacío.", false, warnings);
             }
 
@@ -168,7 +168,7 @@ public class ShaderFilter {
                 versionIsEs3 = declaredVer >= 300;
 
                 if (vm.start() > 0 && s.substring(0, vm.start()).trim().length() > 0) {
-                    return new Result(s,
+                    return new Report(s,
 									  "La directiva '#version' debe ser la primera línea del " + kindName
 									  + " shader (solo puede haber comentarios o espacios en blanco antes).",
 									  versionIsEs3, warnings);
@@ -180,7 +180,7 @@ public class ShaderFilter {
 
             if (!hasVersion && es3Only && es2Kw == null) {
                 if (!es3Available) {
-                    return new Result(s,
+                    return new Report(s,
 									  "El " + kindName + " shader usa sintaxis de OpenGL ES 3.0 "
 									  + "(in/out/texture()) pero el dispositivo no soporta ES 3.0.\n"
 									  + "Reescríbelo con sintaxis ES 2.0 "
@@ -193,7 +193,7 @@ public class ShaderFilter {
             }
 
             if (versionIsEs3 && !es3Available) {
-                return new Result(s,
+                return new Report(s,
 								  "El " + kindName + " shader requiere OpenGL ES 3.0 (#version "
 								  + declaredVer + " es), pero el dispositivo no lo soporta.",
 								  true, warnings);
@@ -207,7 +207,7 @@ public class ShaderFilter {
                     es2Kw = usesEs2OnlySyntax(s, isVertex);
                 }
                 if (es2Kw != null) {
-                    return new Result(s,
+                    return new Report(s,
 									  "El " + kindName + " shader declara #version 300 es pero usa '"
 									  + es2Kw + "', que no existe en ES 3.0.",
 									  true, warnings);
@@ -225,15 +225,15 @@ public class ShaderFilter {
             }
 
             String braceErr = checkBraceBalance(s, kindName);
-            if (braceErr != null) return new Result(s, braceErr, versionIsEs3, warnings);
+            if (braceErr != null) return new Report(s, braceErr, versionIsEs3, warnings);
 
             if (!MAIN_FUNC.matcher(s).find()) {
-                return new Result(s,
+                return new Report(s,
 								  "El " + kindName + " shader no define 'void main()'.",
 								  versionIsEs3, warnings);
             }
 
-            return new Result(s, null, versionIsEs3, warnings);
+            return new Report(s, null, versionIsEs3, warnings);
         }
 
         private static boolean usesEs3OnlySyntax(String s) {
@@ -361,8 +361,8 @@ public class ShaderFilter {
 						synchronized (sCompileLock) {
 							if (!ensureOffscreenContext()) return null;
 							try {
-								return doOffscreenTest(vertexSource, fragmentSource);
-							} catch (OffscreenCompileFailure e) {
+								return offscreenTest(vertexSource, fragmentSource);
+							} catch (OffscreenFail e) {
 								return e.getMessage();
 							} catch (Throwable t) {
 								return "Error inesperado probando el shader: " + t.getMessage();
@@ -407,7 +407,7 @@ public class ShaderFilter {
                 return false;
             }
 
-            // Mismo orden que GlRenderer.init: primero ES 3.0, fallback a ES 2.0.
+            // Mismo orden que GlPainter.init: primero ES 3.0, fallback a ES 2.0.
             int[] ctx3 = { 0x3098, 3, EGL10.EGL_NONE };
             int[] ctx2 = { 0x3098, 2, EGL10.EGL_NONE };
             sEglContext = sEgl.eglCreateContext(sEglDisplay, configs[0],
@@ -447,23 +447,23 @@ public class ShaderFilter {
         }
     }
 
-    private static String doOffscreenTest(String vs, String fs) {
-        boolean es3 = GlRenderer.isEs3Supported();
+    private static String offscreenTest(String vs, String fs) {
+        boolean es3 = GlPainter.isEs3Supported();
 
-        Validator.Result vr = Validator.validate(vs, true, es3);
+        Checker.Report vr = Checker.validate(vs, true, es3);
         if (!vr.isOk()) return "VERTEX shader:\n" + vr.error;
 
-        Validator.Result fr = Validator.validate(fs, false, es3);
+        Checker.Report fr = Checker.validate(fs, false, es3);
         if (!fr.isOk()) return "FRAGMENT shader:\n" + fr.error;
 
         int vsh = 0, fsh = 0, prog = 0;
         try {
-            vsh = offscreenCompileOne(GLES20.GL_VERTEX_SHADER,   vr.source, "VERTEX");
-            fsh = offscreenCompileOne(GLES20.GL_FRAGMENT_SHADER, fr.source, "FRAGMENT");
+            vsh = compileOffscreen(GLES20.GL_VERTEX_SHADER,   vr.source, "VERTEX");
+            fsh = compileOffscreen(GLES20.GL_FRAGMENT_SHADER, fr.source, "FRAGMENT");
 
             prog = GLES20.glCreateProgram();
             if (prog == 0) {
-                throw new OffscreenCompileFailure(
+                throw new OffscreenFail(
                     "glCreateProgram() devolvió 0 en el contexto offscreen.");
             }
             GLES20.glAttachShader(prog, vsh);
@@ -474,7 +474,7 @@ public class ShaderFilter {
             GLES20.glGetProgramiv(prog, GLES20.GL_LINK_STATUS, linkStatus, 0);
             if (linkStatus[0] == GLES20.GL_FALSE) {
                 String log = GLES20.glGetProgramInfoLog(prog);
-                throw new OffscreenCompileFailure(
+                throw new OffscreenFail(
                     "Error de LINKEO:\n\n" + (log == null ? "" : log)
                     + "\n\nSugerencia: revisa que el vertex y el fragment declaren "
                     + "los mismos varyings / in-out con tipos idénticos.");
@@ -487,10 +487,10 @@ public class ShaderFilter {
         }
     }
 
-    private static int offscreenCompileOne(int type, String src, String label) {
+    private static int compileOffscreen(int type, String src, String label) {
         int shader = GLES20.glCreateShader(type);
         if (shader == 0) {
-            throw new OffscreenCompileFailure(
+            throw new OffscreenFail(
                 "glCreateShader() devolvió 0 para el " + label + " shader.");
         }
         GLES20.glShaderSource(shader, src);
@@ -501,14 +501,14 @@ public class ShaderFilter {
         if (status[0] == GLES20.GL_FALSE) {
             String log = GLES20.glGetShaderInfoLog(shader);
             GLES20.glDeleteShader(shader);
-            throw new OffscreenCompileFailure(
+            throw new OffscreenFail(
                 "Error en el " + label + " shader:\n\n" + (log == null ? "" : log));
         }
         return shader;
     }
 
-    private static class OffscreenCompileFailure extends RuntimeException {
-        OffscreenCompileFailure(String msg) { super(msg); }
+    private static class OffscreenFail extends RuntimeException {
+        OffscreenFail(String msg) { super(msg); }
     }
 
     // ========================================================================
@@ -521,17 +521,17 @@ public class ShaderFilter {
     private int mTextureHandle;
     private Map<String, Integer> mUniformLocations;
 
-    public ShaderFilter(String vertexSource, String fragmentSource, Map<String, Float> params) {
+    public GlProgram(String vertexSource, String fragmentSource, Map<String, Float> params) {
         mUniformLocations = new HashMap<String, Integer>();
 
-        boolean es3 = GlRenderer.isEs3Supported();
+        boolean es3 = GlPainter.isEs3Supported();
 
-        Validator.Result vr = Validator.validate(vertexSource, true, es3);
+        Checker.Report vr = Checker.validate(vertexSource, true, es3);
         if (!vr.isOk()) {
             throw new CompileException(CompileException.Kind.VALIDATION,
 									   "Vertex shader: " + vr.error, null, 0);
         }
-        Validator.Result fr = Validator.validate(fragmentSource, false, es3);
+        Checker.Report fr = Checker.validate(fragmentSource, false, es3);
         if (!fr.isOk()) {
             throw new CompileException(CompileException.Kind.VALIDATION,
 									   "Fragment shader: " + fr.error, null, 0);

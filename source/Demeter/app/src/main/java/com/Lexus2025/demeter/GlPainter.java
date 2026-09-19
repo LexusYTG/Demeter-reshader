@@ -53,8 +53,8 @@ import java.nio.FloatBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
-public class GlRenderer {
-    private static final String TAG = "GlRenderer";
+public class GlPainter {
+    private static final String TAG = "GlPainter";
     private static final int NUM_TEXTURES = 6;
 
     // --- Capacidad ES 3.0 a nivel de proceso -------------------------------
@@ -62,13 +62,13 @@ public class GlRenderer {
     private static volatile boolean sEs3Known     = false;
 
     /** ¿El dispositivo soporta OpenGL ES 3.0?
-     *  Si aún no se inicializó ningún GlRenderer, devuelve {@code true}
+     *  Si aún no se inicializó ningún GlPainter, devuelve {@code true}
      *  para ser permisivo con la validación. */
     public static boolean isEs3Supported() {
         return sEs3Known ? sEs3Supported : true;
     }
 
-    private static void recordEs3Support(boolean es3) {
+    private static void noteEs3(boolean es3) {
         sEs3Supported = es3;
         sEs3Known     = true;
     }
@@ -117,7 +117,7 @@ public class GlRenderer {
     private FloatBuffer  mVertexBuffer;
     private FloatBuffer  mTexCoordBuffer;
     private FloatBuffer  mTexCoordBufferFlipY;
-    private ShaderFilter mPassthroughShader;
+    private GlProgram mPassthroughShader;
 
     private int[]     mGenTextures = new int[NUM_TEXTURES];
     private boolean[] mGenReady    = new boolean[NUM_TEXTURES];
@@ -131,7 +131,7 @@ public class GlRenderer {
     private static final float[] TEX_COORDS = {  0f,  1f,  1f,  1f,  0f,  0f,  1f,  0f };
     private static final float[] TEX_COORDS_FLIP_Y = {  0f,  0f,  1f,  0f,  0f,  1f,  1f,  1f };
 
-    public GlRenderer() {
+    public GlPainter() {
         mVertexBuffer = ByteBuffer.allocateDirect(VERTICES.length * 4)
             .order(ByteOrder.nativeOrder()).asFloatBuffer();
         mVertexBuffer.put(VERTICES).position(0);
@@ -186,7 +186,7 @@ public class GlRenderer {
                 mEglDisplay, mEglConfig, EGL10.EGL_NO_CONTEXT, ctxAttribs3);
             if (mEglContext != null && mEglContext != EGL10.EGL_NO_CONTEXT) {
                 mIsEs3 = true;
-                recordEs3Support(true);
+                noteEs3(true);
                 Log.d(TAG, "Contexto EGL creado con ES 3.0");
             } else {
                 Log.w(TAG, "ES 3.0 no disponible, cayendo a ES 2.0");
@@ -194,7 +194,7 @@ public class GlRenderer {
                     mEglDisplay, mEglConfig, EGL10.EGL_NO_CONTEXT, ctxAttribs2);
                 if (mEglContext == null || mEglContext == EGL10.EGL_NO_CONTEXT) return false;
                 mIsEs3 = false;
-                recordEs3Support(false);
+                noteEs3(false);
             }
 
             mEglSurface = mEgl.eglCreateWindowSurface(
@@ -215,7 +215,7 @@ public class GlRenderer {
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
 
-            mPassthroughShader = new ShaderFilter(
+            mPassthroughShader = new GlProgram(
                 PASSTHROUGH_VERTEX, PASSTHROUGH_FRAGMENT, null);
 
             GLES20.glGenTextures(NUM_TEXTURES, mGenTextures, 0);
@@ -261,31 +261,31 @@ public class GlRenderer {
     public synchronized boolean uploadBitmap(Bitmap bitmap) {
         if (bitmap == null || bitmap.isRecycled()) return false;
         if (!mInitialized) {
-            BitmapPool.release(bitmap);
+            BmpPool.release(bitmap);
             return false;
         }
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTexture[0]);
         GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0);
-        BitmapPool.release(bitmap);
+        BmpPool.release(bitmap);
         mTextureReady = true;
         return true;
     }
 
-    public synchronized boolean drawFrame(ShaderFilter shader, Map<String, Float> params) {
+    public synchronized boolean drawFrame(GlProgram shader, Map<String, Float> params) {
         if (!mInitialized || !mTextureReady) return false;
 
         GLES20.glViewport(0, 0, mSurfaceW, mSurfaceH);
         GLES20.glClearColor(0f, 0f, 0f, 1f);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
-        ShaderFilter active = (shader != null) ? shader : mPassthroughShader;
+        GlProgram active = (shader != null) ? shader : mPassthroughShader;
         if (active != null) {
             active.draw(mTexture[0], mVertexBuffer, mTexCoordBuffer, params);
         }
         return mEgl.eglSwapBuffers(mEglDisplay, mEglSurface);
     }
 
-    public synchronized boolean drawFrame(Bitmap frame, ShaderFilter shader,
+    public synchronized boolean drawFrame(Bitmap frame, GlProgram shader,
                                           Map<String, Float> params) {
         if (!uploadBitmap(frame)) return false;
         return drawFrame(shader, params);
@@ -293,8 +293,8 @@ public class GlRenderer {
 
     public synchronized boolean drawPreviewStripes(
 		int slotA, int slotC,
-		ShaderFilter modShader, Map<String, Float> modParams,
-		ShaderFilter fgShader, Map<String, Float> fgParams,
+		GlProgram modShader, Map<String, Float> modParams,
+		GlProgram fgShader, Map<String, Float> fgParams,
 		float mix) {
 
         if (!mInitialized) return false;
@@ -308,7 +308,7 @@ public class GlRenderer {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
         GLES20.glViewport(0, 0, thirdW, mSurfaceH);
-        ShaderFilter s1 = (modShader != null) ? modShader : mPassthroughShader;
+        GlProgram s1 = (modShader != null) ? modShader : mPassthroughShader;
         s1.draw(mGenTextures[slotA], mVertexBuffer, mTexCoordBuffer, modParams);
 
         GLES20.glViewport(thirdW, 0, thirdW, mSurfaceH);
@@ -325,7 +325,7 @@ public class GlRenderer {
         }
 
         GLES20.glViewport(thirdW * 2, 0, lastW, mSurfaceH);
-        ShaderFilter s3 = (modShader != null) ? modShader : mPassthroughShader;
+        GlProgram s3 = (modShader != null) ? modShader : mPassthroughShader;
         s3.draw(mGenTextures[slotC], mVertexBuffer, mTexCoordBuffer, modParams);
 
         GLES20.glViewport(0, 0, mSurfaceW, mSurfaceH);
@@ -333,33 +333,33 @@ public class GlRenderer {
         return mEgl.eglSwapBuffers(mEglDisplay, mEglSurface);
     }
 
-    public synchronized boolean uploadToGenSlot(int slot, Bitmap bitmap) {
+    public synchronized boolean uploadSlot(int slot, Bitmap bitmap) {
         if (bitmap == null || bitmap.isRecycled() || slot < 0 || slot >= NUM_TEXTURES) {
-            if (bitmap != null) BitmapPool.release(bitmap);
+            if (bitmap != null) BmpPool.release(bitmap);
             return false;
         }
         if (!mInitialized) {
-            BitmapPool.release(bitmap);
+            BmpPool.release(bitmap);
             return false;
         }
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mGenTextures[slot]);
         GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0);
-        BitmapPool.release(bitmap);
+        BmpPool.release(bitmap);
         mGenReady[slot] = true;
         return true;
     }
 
-    public synchronized boolean drawGenSlot(int slot, ShaderFilter shader, Map<String, Float> params) {
+    public synchronized boolean drawSlot(int slot, GlProgram shader, Map<String, Float> params) {
         if (!mInitialized || !mGenReady[slot]) return false;
         GLES20.glViewport(0, 0, mSurfaceW, mSurfaceH);
         GLES20.glClearColor(0f, 0f, 0f, 1f);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
-        ShaderFilter active = (shader != null) ? shader : mPassthroughShader;
+        GlProgram active = (shader != null) ? shader : mPassthroughShader;
         active.draw(mGenTextures[slot], mVertexBuffer, mTexCoordBuffer, params);
         return mEgl.eglSwapBuffers(mEglDisplay, mEglSurface);
     }
 
-    public synchronized boolean drawGenBlend(int slotA, int slotB, float mix) {
+    public synchronized boolean blend(int slotA, int slotB, float mix) {
         if (!mInitialized || mBlendProgram == 0 || !mGenReady[slotA] || !mGenReady[slotB]) return false;
         GLES20.glViewport(0, 0, mSurfaceW, mSurfaceH);
         GLES20.glClearColor(0f, 0f, 0f, 1f);
@@ -391,8 +391,8 @@ public class GlRenderer {
         return mEgl.eglSwapBuffers(mEglDisplay, mEglSurface);
     }
 
-    public synchronized boolean drawGenBlendShader(int slotA, int slotB, float mix,
-                                                   ShaderFilter shader, Map<String, Float> params) {
+    public synchronized boolean blendShader(int slotA, int slotB, float mix,
+                                                   GlProgram shader, Map<String, Float> params) {
         if (!mInitialized || shader == null || !mGenReady[slotA] || !mGenReady[slotB]) return false;
         GLES20.glViewport(0, 0, mSurfaceW, mSurfaceH);
         GLES20.glClearColor(0f, 0f, 0f, 1f);
@@ -404,7 +404,7 @@ public class GlRenderer {
         return mEgl.eglSwapBuffers(mEglDisplay, mEglSurface);
     }
 
-    private boolean beginRenderToTexture(int texId) {
+    private boolean bindTarget(int texId) {
         if (!mInitialized) return false;
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFbo);
         GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
@@ -421,7 +421,7 @@ public class GlRenderer {
         return true;
     }
 
-    private void endRenderToTexture() {
+    private void unbindTarget() {
         if (!mInitialized) return;
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
     }
@@ -444,39 +444,39 @@ public class GlRenderer {
         GLES20.glBindRenderbuffer(GLES20.GL_RENDERBUFFER, 0);
     }
 
-    public synchronized boolean drawGenSlotToTexture(int sourceSlot, int targetSlot,
-                                                     ShaderFilter shader, Map<String, Float> params) {
+    public synchronized boolean drawSlotInto(int sourceSlot, int targetSlot,
+                                                     GlProgram shader, Map<String, Float> params) {
         if (!mInitialized || !mGenReady[sourceSlot] || targetSlot < 0 || targetSlot >= NUM_TEXTURES) return false;
-        if (!beginRenderToTexture(mGenTextures[targetSlot])) return false;
+        if (!bindTarget(mGenTextures[targetSlot])) return false;
         GLES20.glClearColor(0f, 0f, 0f, 1f);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
-        ShaderFilter active = (shader != null) ? shader : mPassthroughShader;
+        GlProgram active = (shader != null) ? shader : mPassthroughShader;
         active.draw(mGenTextures[sourceSlot], mVertexBuffer, mTexCoordBufferFlipY, params);
-        endRenderToTexture();
+        unbindTarget();
         mGenReady[targetSlot] = true;
         return true;
     }
 
-    public synchronized boolean drawGenBlendShaderToTexture(int slotA, int slotB, float mix,
-                                                            ShaderFilter shader, Map<String, Float> params,
+    public synchronized boolean blendShaderInto(int slotA, int slotB, float mix,
+                                                            GlProgram shader, Map<String, Float> params,
                                                             int targetSlot) {
         if (!mInitialized || shader == null || !mGenReady[slotA] || !mGenReady[slotB] ||
             targetSlot < 0 || targetSlot >= NUM_TEXTURES) return false;
-        if (!beginRenderToTexture(mGenTextures[targetSlot])) return false;
+        if (!bindTarget(mGenTextures[targetSlot])) return false;
         GLES20.glClearColor(0f, 0f, 0f, 1f);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
         int[] texIds = { mGenTextures[slotA], mGenTextures[slotB] };
         if (params != null) params.put("uMix", mix);
         shader.draw(texIds, mVertexBuffer, mTexCoordBufferFlipY, params);
-        endRenderToTexture();
+        unbindTarget();
         mGenReady[targetSlot] = true;
         return true;
     }
 
-    public synchronized boolean drawGenBlendToTexture(int slotA, int slotB, float mix, int targetSlot) {
+    public synchronized boolean blendInto(int slotA, int slotB, float mix, int targetSlot) {
         if (!mInitialized || mBlendProgram == 0 || !mGenReady[slotA] || !mGenReady[slotB] ||
             targetSlot < 0 || targetSlot >= NUM_TEXTURES) return false;
-        if (!beginRenderToTexture(mGenTextures[targetSlot])) return false;
+        if (!bindTarget(mGenTextures[targetSlot])) return false;
         GLES20.glClearColor(0f, 0f, 0f, 1f);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
         GLES20.glUseProgram(mBlendProgram);
@@ -503,7 +503,7 @@ public class GlRenderer {
         GLES20.glDisableVertexAttribArray(mBlendPosHandle);
         GLES20.glDisableVertexAttribArray(mBlendTexCoordHandle);
 
-        endRenderToTexture();
+        unbindTarget();
         mGenReady[targetSlot] = true;
         return true;
     }

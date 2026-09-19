@@ -80,7 +80,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements Lang.Listener {
 
     private static final String TAG = "MainActivity";
 
@@ -96,11 +96,11 @@ public class MainActivity extends Activity {
     private static final int REQ_STORE        = 107;
     private static final int REQ_FILTERS      = 108;
 
-    private enum CaptureState { IDLE, PROJECTING }
-    private CaptureState mState = CaptureState.IDLE;
+    private enum CapState { IDLE, PROJECTING }
+    private CapState mState = CapState.IDLE;
 
     private MediaProjectionManager mProjectionManager;
-    private ModuleManager mModuleManager;
+    private Mods mMods;
 
     private TextView mTvStatusCaption;
     private TextView mTvStatusFps;
@@ -123,8 +123,8 @@ public class MainActivity extends Activity {
 
     private HandlerThread mPreviewThread;
     private Handler       mPreviewHandler;
-    private GlRenderer    mPreviewRenderer;
-    private ShaderFilter  mPreviewShader;
+    private GlPainter     mPreviewPainter;
+    private GlProgram     mPreviewShader;
     private volatile boolean mPreviewGlReady     = false;
     private volatile boolean mPreviewLoopRunning = false;
 
@@ -146,40 +146,38 @@ public class MainActivity extends Activity {
         @Override
         public void run() {
             if (!mPreviewLoopRunning) return;
-            if (mPreviewGlReady && mPreviewRenderer != null) {
-                List<Module> previewChain = mModuleManager.getEnabledChain();
-                Module active = previewChain.isEmpty() ? null : previewChain.get(0);
-                ShaderFilter shader = mPreviewShader;
+            if (mPreviewGlReady && mPreviewPainter != null) {
+                List<Mod> previewChain = mMods.getEnabledChain();
+                Mod active = previewChain.isEmpty() ? null : previewChain.get(0);
+                GlProgram shader = mPreviewShader;
                 float time = (System.currentTimeMillis() - mPreviewStartTimeMs) / 1000f;
 
-                Module frameGen = mModuleManager.getActiveFrameGenModule();
+                Mod frameGen = mMods.getActiveFgMod();
 
                 if (frameGen != null && frameGen.isEnabled()) {
-
                     Map<String, Float> modParams = null;
                     if (active != null && shader != null) {
                         modParams = new HashMap<String, Float>(active.getParams());
                         modParams.put("uTime", time);
                     }
-                    ShaderFilter fgShader = frameGen.getShaderFilter();
+                    GlProgram fgShader = frameGen.getGlProgram();
                     Map<String, Float> fgParams = new HashMap<String, Float>(frameGen.getParams());
                     fgParams.put("uTime", time);
                     Float mixObj = frameGen.getParams().get("uMix");
                     float mix = (mixObj != null) ? mixObj : 0.5f;
 
-                    mPreviewRenderer.drawPreviewStripes(
+                    mPreviewPainter.drawPreviewStripes(
                         0, 1,
                         (active != null) ? shader : null, modParams,
                         fgShader, fgParams,
                         mix);
                 } else {
-
                     Map<String, Float> params = null;
                     if (active != null && shader != null) {
                         params = new HashMap<String, Float>(active.getParams());
                         params.put("uTime", time);
                     }
-                    mPreviewRenderer.drawFrame(shader, params);
+                    mPreviewPainter.drawFrame(shader, params);
                 }
             }
             mPreviewHandler.postDelayed(this, PREVIEW_FRAME_INTERVAL_MS);
@@ -204,14 +202,17 @@ public class MainActivity extends Activity {
 
         mProjectionManager = (MediaProjectionManager)
             getSystemService(MEDIA_PROJECTION_SERVICE);
-        mModuleManager = new ModuleManager(this);
+        mMods = new Mods(this);
 
-        setContentView(buildRoot());
+        Lang.init(this);
+        Lang.addListener(this);
 
-        wireListeners();
-        setupPreview();
-        setState(CaptureState.IDLE);
-        rebuildParamsPanel();
+        setContentView(rootLayout());
+
+        hookUp();
+        initPreview();
+        setState(CapState.IDLE);
+        refillParams();
 
         mUiHandler = new Handler();
         mUiHandler.post(mUiUpdater);
@@ -220,11 +221,11 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         updateStatusCard();
-        rebuildParamsPanel();
+        refillParams();
 
-        if (mState == CaptureState.PROJECTING) {
-            boolean fps = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
-                .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
+        if (mState == CapState.PROJECTING) {
+            boolean fps = getSharedPreferences(MyFiltersActivity.PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(MyFiltersActivity.PREF_FPS_OVERLAY, false);
             Intent b = new Intent(CaptureService.ACTION_FPS_OVERLAY);
             b.setPackage(getPackageName());
             b.putExtra(CaptureService.EXTRA_FPS_ENABLED, fps);
@@ -233,20 +234,44 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        Lang.removeListener(this);
         super.onDestroy();
         if (mUiHandler != null) mUiHandler.removeCallbacks(mUiUpdater);
         stopPreviewLoop();
         if (mPreviewHandler != null) {
             mPreviewHandler.post(new Runnable() {
-                    @Override public void run() {
-                        if (mPreviewShader   != null) { mPreviewShader.destroy();    mPreviewShader   = null; }
-                        if (mPreviewRenderer != null) { mPreviewRenderer.release();  mPreviewRenderer = null; }
-                        if (mPreviewFrameA   != null) { mPreviewFrameA.recycle();    mPreviewFrameA   = null; }
-                        if (mPreviewFrameB   != null) { mPreviewFrameB.recycle();    mPreviewFrameB   = null; }
-                    }
-                });
+					@Override public void run() {
+						if (mPreviewShader   != null) { mPreviewShader.destroy();   mPreviewShader   = null; }
+						if (mPreviewPainter != null) { mPreviewPainter.release(); mPreviewPainter = null; }
+						if (mPreviewFrameA   != null) { mPreviewFrameA.recycle();   mPreviewFrameA   = null; }
+						if (mPreviewFrameB   != null) { mPreviewFrameB.recycle();   mPreviewFrameB   = null; }
+					}
+				});
         }
         if (mPreviewThread != null) mPreviewThread.quit();
+    }
+
+    @Override
+    public void onLanguageChanged() {
+        runOnUiThread(new Runnable() {
+				@Override public void run() {
+					if (mBtnCapture != null) {
+						boolean capturing = (mState == CapState.PROJECTING);
+						mBtnCapture.setText(Lang.get(capturing ? 2 : 1));
+					}
+					if (mBtnArea    != null) mBtnArea.setText(Lang.get(3));
+					if (mBtnOverlay != null) mBtnOverlay.setText(Lang.get(4));
+					if (mTvPreviewHint != null) mTvPreviewHint.setText(Lang.get(9));
+					if (mBtnFilters != null) {
+						List<Mod> chain = mMods.getEnabledChain();
+						mBtnFilters.setText(chain.isEmpty()
+											? Lang.get(5)
+											: Lang.f(chain.size() == 1 ? 14 : 13, chain.size()));
+					}
+					updateStatusCard();
+					refillParams();
+				}
+			});
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -262,81 +287,109 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View buildRoot() {
+    private View rootLayout() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Ui.BG_ROOT);
+        root.setBackgroundColor(Skin.BG_ROOT);
 
-        int side = Ui.dp(this, 14);
+        int side = Skin.dp(this, 14);
 
-        LinearLayout.LayoutParams headerLp = Ui.lp(MP, WC);
+        LinearLayout.LayoutParams headerLp = Skin.lp(MP, WC);
         headerLp.leftMargin   = side;
         headerLp.rightMargin  = side;
-        headerLp.topMargin    = Ui.dp(this, 18);
-        headerLp.bottomMargin = Ui.dp(this, 10);
-        root.addView(buildHeader(), headerLp);
+        headerLp.topMargin    = Skin.dp(this, 18);
+        headerLp.bottomMargin = Skin.dp(this, 10);
+        root.addView(topBar(), headerLp);
 
-        LinearLayout.LayoutParams statusLp = Ui.lp(MP, WC);
+        LinearLayout.LayoutParams statusLp = Skin.lp(MP, WC);
         statusLp.leftMargin   = side;
         statusLp.rightMargin  = side;
-        statusLp.bottomMargin = Ui.dp(this, 10);
-        root.addView(buildStatusCard(), statusLp);
+        statusLp.bottomMargin = Skin.dp(this, 10);
+        root.addView(statusCard(), statusLp);
 
-        LinearLayout.LayoutParams previewLp = Ui.lp(MP, 0, 1f);
+        LinearLayout.LayoutParams previewLp = Skin.lp(MP, 0, 1f);
         previewLp.leftMargin   = side;
         previewLp.rightMargin  = side;
-        View previewCard = buildPreviewCard();
-        previewCard.setMinimumHeight(Ui.dp(this, 160));
+        View previewCard = previewBox();
+        previewCard.setMinimumHeight(Skin.dp(this, 160));
         root.addView(previewCard, previewLp);
 
-        LinearLayout.LayoutParams paramsLp = Ui.lp(MP, Ui.dp(this, 200));
+        LinearLayout.LayoutParams paramsLp = Skin.lp(MP, Skin.dp(this, 200));
         paramsLp.leftMargin   = side;
         paramsLp.rightMargin  = side;
-        paramsLp.topMargin    = Ui.dp(this, 8);
-        root.addView(buildParamsPanel(), paramsLp);
+        paramsLp.topMargin    = Skin.dp(this, 8);
+        root.addView(paramsPanel(), paramsLp);
 
-        LinearLayout.LayoutParams captureLp = Ui.lp(MP, Ui.dp(this, 56));
+        LinearLayout.LayoutParams captureLp = Skin.lp(MP, Skin.dp(this, 56));
         captureLp.leftMargin   = side;
         captureLp.rightMargin  = side;
-        captureLp.topMargin    = Ui.dp(this, 8);
-        root.addView(buildCaptureButton(), captureLp);
+        captureLp.topMargin    = Skin.dp(this, 8);
+        root.addView(captureButton(), captureLp);
 
-        LinearLayout.LayoutParams secLp = Ui.lp(MP, WC);
+        LinearLayout.LayoutParams secLp = Skin.lp(MP, WC);
         secLp.leftMargin   = side;
         secLp.rightMargin  = side;
-        secLp.topMargin    = Ui.dp(this, 6);
-        root.addView(buildSecondaryRow(), secLp);
+        secLp.topMargin    = Skin.dp(this, 6);
+        root.addView(secondaryRow(), secLp);
 
-        LinearLayout.LayoutParams filtersLp = Ui.lp(MP, Ui.dp(this, 52));
+        LinearLayout.LayoutParams filtersLp = Skin.lp(MP, Skin.dp(this, 52));
         filtersLp.leftMargin   = side;
         filtersLp.rightMargin  = side;
-        filtersLp.topMargin    = Ui.dp(this, 6);
-        filtersLp.bottomMargin = Ui.dp(this, 14);
-        root.addView(buildFiltersButton(), filtersLp);
+        filtersLp.topMargin    = Skin.dp(this, 6);
+        filtersLp.bottomMargin = Skin.dp(this, 14);
+        root.addView(filtersButton(), filtersLp);
 
         return root;
     }
 
-    private View buildHeader() {
+    private View topBar() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView title = Ui.text(this, "Demeter", 26, Ui.TEXT_PRIMARY, true);
-        row.addView(title, Ui.lp(0, WC, 1f));
+        TextView title = Skin.text(this, "Demeter", 26, Skin.TEXT_PRIMARY, true);
+        row.addView(title, Skin.lp(0, WC, 1f));
+
+        TextView langBtn = makeIconButton("\uD83C\uDF10");
+        langBtn.setOnClickListener(new View.OnClickListener() {
+				@Override public void onClick(View v) { showLanguageDialog(); }
+			});
+        row.addView(langBtn, Skin.lp(Skin.dp(this, 44), Skin.dp(this, 44)));
 
         TextView addBtn = makeIconButton("+");
         addBtn.setId(android.R.id.button1);
-        row.addView(addBtn, Ui.lp(Ui.dp(this, 44), Ui.dp(this, 44)));
+        LinearLayout.LayoutParams addLp = Skin.lp(Skin.dp(this, 44), Skin.dp(this, 44));
+        addLp.leftMargin = Skin.dp(this, 8);
+        row.addView(addBtn, addLp);
 
         return row;
     }
 
-    private View buildStatusCard() {
+    private void showLanguageDialog() {
+        final List<String> codes = Lang.getAvailableLanguages();
+        final CharSequence[] labels = new CharSequence[codes.size()];
+        int checked = 0;
+        for (int i = 0; i < codes.size(); i++) {
+            labels[i] = Lang.getDisplayName(codes.get(i));
+            if (codes.get(i).equals(Lang.getActiveLanguage())) checked = i;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle(Lang.get(25))
+            .setSingleChoiceItems(labels, checked, new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    d.dismiss();
+                    Lang.setLanguage(MainActivity.this, codes.get(which));
+                }
+            })
+            .setNegativeButton(Lang.get(18), null)
+            .show();
+    }
+
+    private View statusCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(Ui.roundRect(Ui.BG_SURFACE, this, 14));
-        int p = Ui.dp(this, 14);
+        card.setBackground(Skin.roundRect(Skin.BG_SURFACE, this, 14));
+        int p = Skin.dp(this, 14);
         card.setPadding(p, p, p, p);
 
         LinearLayout row1 = new LinearLayout(this);
@@ -344,69 +397,68 @@ public class MainActivity extends Activity {
         row1.setGravity(Gravity.CENTER_VERTICAL);
 
         mStatusDot = new View(this);
-        mStatusDot.setBackground(Ui.circle(Ui.TEXT_TERTIARY));
-        LinearLayout.LayoutParams dotLp = Ui.lp(Ui.dp(this, 10), Ui.dp(this, 10));
-        dotLp.rightMargin = Ui.dp(this, 10);
+        mStatusDot.setBackground(Skin.circle(Skin.TEXT_TERTIARY));
+        LinearLayout.LayoutParams dotLp = Skin.lp(Skin.dp(this, 10), Skin.dp(this, 10));
+        dotLp.rightMargin = Skin.dp(this, 10);
         row1.addView(mStatusDot, dotLp);
 
-        mTvStatusCaption = Ui.text(this, "INACTIVO", 11, Ui.TEXT_SECOND, true);
+        mTvStatusCaption = Skin.text(this, Lang.get(6), 11, Skin.TEXT_SECOND, true);
         mTvStatusCaption.setLetterSpacing(0.18f);
-        row1.addView(mTvStatusCaption, Ui.lp(0, WC, 1f));
+        row1.addView(mTvStatusCaption, Skin.lp(0, WC, 1f));
 
-        mTvStatusFps = Ui.text(this, "—", 22, Ui.ACCENT, true);
+        mTvStatusFps = Skin.text(this, "—", 22, Skin.ACCENT, true);
         row1.addView(mTvStatusFps);
 
         card.addView(row1);
 
-        mTvStatusChain = Ui.text(this, "Ningún filtro activo", 12, Ui.TEXT_SECOND, false);
-        mTvStatusChain.setLineSpacing(Ui.dp(this, 2), 1f);
-        LinearLayout.LayoutParams chainLp = Ui.lp(MP, WC);
-        chainLp.topMargin = Ui.dp(this, 6);
+        mTvStatusChain = Skin.text(this, Lang.get(8), 12, Skin.TEXT_SECOND, false);
+        mTvStatusChain.setLineSpacing(Skin.dp(this, 2), 1f);
+        LinearLayout.LayoutParams chainLp = Skin.lp(MP, WC);
+        chainLp.topMargin = Skin.dp(this, 6);
         card.addView(mTvStatusChain, chainLp);
 
         return card;
     }
 
-    private View buildPreviewCard() {
+    private View previewBox() {
         FrameLayout card = new FrameLayout(this);
-        card.setBackground(Ui.roundRectStroke(Ui.BG_SURFACE, Ui.DIVIDER, this, 14, 1f));
+        card.setBackground(Skin.roundRectStroke(Skin.BG_SURFACE, Skin.DIVIDER, this, 14, 1f));
         card.setClipToOutline(true);
 
         mSurfacePreview = new SurfaceView(this);
         mSurfacePreview.getHolder().setFormat(android.graphics.PixelFormat.OPAQUE);
         card.addView(mSurfacePreview, new FrameLayout.LayoutParams(MP, MP));
 
-        mTvPreviewHint = Ui.text(this, "Selecciona un filtro para previsualizar",
-                                 13, Ui.TEXT_TERTIARY, false);
+        mTvPreviewHint = Skin.text(this, Lang.get(9), 13, Skin.TEXT_TERTIARY, false);
         mTvPreviewHint.setGravity(Gravity.CENTER);
         card.addView(mTvPreviewHint, new FrameLayout.LayoutParams(MP, MP));
 
         return card;
     }
 
-    private View buildParamsPanel() {
+    private View paramsPanel() {
         mParamsPanel = new LinearLayout(this);
         mParamsPanel.setOrientation(LinearLayout.VERTICAL);
-        mParamsPanel.setBackground(Ui.roundRect(Ui.BG_SURFACE, this, 14));
+        mParamsPanel.setBackground(Skin.roundRect(Skin.BG_SURFACE, this, 14));
 
-        int p = Ui.dp(this, 12);
+        int p = Skin.dp(this, 12);
         mParamsPanel.setPadding(p, p, p, p);
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
 
-        mTvParamsTitle = Ui.text(this, "Parámetros", 13, Ui.TEXT_TERTIARY, true);
+        mTvParamsTitle = Skin.text(this, Lang.get(10), 13, Skin.TEXT_TERTIARY, true);
         mTvParamsTitle.setLetterSpacing(0.10f);
-        header.addView(mTvParamsTitle, Ui.lp(0, WC, 1f));
+        header.addView(mTvParamsTitle, Skin.lp(0, WC, 1f));
 
         mParamsPanel.addView(header);
 
         View div = new View(this);
-        div.setBackgroundColor(Ui.DIVIDER);
-        LinearLayout.LayoutParams divLp = Ui.lp(MP, Ui.dp(this, 1));
-        divLp.topMargin    = Ui.dp(this, 8);
-        divLp.bottomMargin = Ui.dp(this, 6);
+        div.setBackgroundColor(Skin.DIVIDER);
+        LinearLayout.LayoutParams divLp = Skin.lp(MP, Skin.dp(this, 1));
+        divLp.topMargin    = Skin.dp(this, 8);
+        divLp.bottomMargin = Skin.dp(this, 6);
         mParamsPanel.addView(div, divLp);
 
         ScrollView scroll = new ScrollView(this);
@@ -416,35 +468,34 @@ public class MainActivity extends Activity {
         mParamsList.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(mParamsList, new FrameLayout.LayoutParams(MP, WC));
 
-        mParamsPanel.addView(scroll, Ui.lp(MP, 0, 1f));
+        mParamsPanel.addView(scroll, Skin.lp(MP, 0, 1f));
 
         return mParamsPanel;
     }
 
-    private void rebuildParamsPanel() {
+    private void refillParams() {
         if (mParamsList == null) return;
         mParamsList.removeAllViews();
 
-        Module frameGen = mModuleManager.getActiveFrameGenModule();
-        List<Module> chain = mModuleManager.getEnabledChain();
-        Module modActive = chain.isEmpty() ? null : chain.get(0);
+        Mod frameGen = mMods.getActiveFgMod();
+        List<Mod> chain = mMods.getEnabledChain();
+        Mod modActive = chain.isEmpty() ? null : chain.get(0);
 
         boolean hasFg   = (frameGen != null && frameGen.isEnabled()
-			&& !frameGen.getParamDefs().isEmpty());
+            && !frameGen.getParamDefs().isEmpty());
         boolean hasMod  = (modActive != null && !modActive.getParamDefs().isEmpty());
 
         if (!hasFg && !hasMod) {
-            mTvParamsTitle.setText("Parámetros");
-            TextView empty = Ui.text(this, "Activa un filtro o un framegen para ver sus parámetros.",
-                                     13, Ui.TEXT_TERTIARY, false);
+            mTvParamsTitle.setText(Lang.get(10));
+            TextView empty = Skin.text(this, Lang.get(11), 13, Skin.TEXT_TERTIARY, false);
             empty.setGravity(Gravity.CENTER);
-            LinearLayout.LayoutParams emptyLp = Ui.lp(MP, Ui.dp(this, 80));
+            LinearLayout.LayoutParams emptyLp = Skin.lp(MP, Skin.dp(this, 80));
             mParamsList.addView(empty, emptyLp);
             return;
         }
 
         if (hasFg && hasMod) {
-            mTvParamsTitle.setText("Parámetros");
+            mTvParamsTitle.setText(Lang.get(10));
         } else if (hasFg) {
             mTvParamsTitle.setText(frameGen.getName());
         } else {
@@ -452,30 +503,30 @@ public class MainActivity extends Activity {
         }
 
         if (hasFg) {
-            mParamsList.addView(sectionLabel("FRAMEGEN · " + frameGen.getName()));
-            for (Map.Entry<String, Module.ParamDef> entry : frameGen.getParamDefs().entrySet()) {
-                mParamsList.addView(buildParamRow(frameGen, entry.getKey(), entry.getValue()));
+            mParamsList.addView(sectionLabel(Lang.f(27, frameGen.getName())));
+            for (Map.Entry<String, Mod.Param> entry : frameGen.getParamDefs().entrySet()) {
+                mParamsList.addView(paramRow(frameGen, entry.getKey(), entry.getValue()));
             }
         }
 
         if (hasMod) {
-            mParamsList.addView(sectionLabel("MOD · " + modActive.getName()));
-            for (Map.Entry<String, Module.ParamDef> entry : modActive.getParamDefs().entrySet()) {
-                mParamsList.addView(buildParamRow(modActive, entry.getKey(), entry.getValue()));
+            mParamsList.addView(sectionLabel(Lang.f(28, modActive.getName())));
+            for (Map.Entry<String, Mod.Param> entry : modActive.getParamDefs().entrySet()) {
+                mParamsList.addView(paramRow(modActive, entry.getKey(), entry.getValue()));
             }
         }
     }
 
     private TextView sectionLabel(String s) {
-        TextView tv = Ui.text(this, s, 10, Ui.TEXT_TERTIARY, true);
+        TextView tv = Skin.text(this, s, 10, Skin.TEXT_TERTIARY, true);
         tv.setLetterSpacing(0.15f);
-        tv.setPadding(Ui.dp(this, 2), Ui.dp(this, 10), Ui.dp(this, 2), Ui.dp(this, 4));
+        tv.setPadding(Skin.dp(this, 2), Skin.dp(this, 10), Skin.dp(this, 2), Skin.dp(this, 4));
         return tv;
     }
 
-    private View buildParamRow(final Module module,
-                               final String uniformName,
-                               final Module.ParamDef def) {
+    private View paramRow(final Mod module,
+                          final String uniformName,
+                          final Mod.Param def) {
 
         final float step = stepForRange(def.max - def.min);
         final Map<String, Float> params = module.getParams();
@@ -485,13 +536,13 @@ public class MainActivity extends Activity {
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams rowLp = Ui.lp(MP, WC);
-        rowLp.bottomMargin = Ui.dp(this, 10);
+        LinearLayout.LayoutParams rowLp = Skin.lp(MP, WC);
+        rowLp.bottomMargin = Skin.dp(this, 10);
         row.setLayoutParams(rowLp);
 
-        TextView label = Ui.text(this, def.label, 13, Ui.TEXT_SECOND, true);
-        LinearLayout.LayoutParams labelLp = Ui.lp(MP, WC);
-        labelLp.bottomMargin = Ui.dp(this, 4);
+        TextView label = Skin.text(this, def.label, 13, Skin.TEXT_SECOND, true);
+        LinearLayout.LayoutParams labelLp = Skin.lp(MP, WC);
+        labelLp.bottomMargin = Skin.dp(this, 4);
         row.addView(label, labelLp);
 
         LinearLayout controls = new LinearLayout(this);
@@ -499,78 +550,80 @@ public class MainActivity extends Activity {
         controls.setGravity(Gravity.CENTER_VERTICAL);
 
         final TextView btnMinus = makeSmallStepBtn("−");
-        controls.addView(btnMinus, Ui.lp(Ui.dp(this, 40), Ui.dp(this, 40)));
+        controls.addView(btnMinus, Skin.lp(Skin.dp(this, 40), Skin.dp(this, 40)));
 
         final EditText etValue = new EditText(this);
         etValue.setInputType(InputType.TYPE_CLASS_NUMBER
                              | InputType.TYPE_NUMBER_FLAG_DECIMAL
                              | InputType.TYPE_NUMBER_FLAG_SIGNED);
         etValue.setText(formatValue(initial, decimal));
-        etValue.setTextColor(Ui.TEXT_PRIMARY);
+        etValue.setTextColor(Skin.TEXT_PRIMARY);
         etValue.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        etValue.setTypeface(Ui.medium());
+        etValue.setTypeface(Skin.medium());
         etValue.setGravity(Gravity.CENTER);
-        etValue.setBackground(Ui.roundRectStroke(Ui.BG_ELEV, Ui.DIVIDER, this, 10, 1f));
-        etValue.setPadding(Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8), Ui.dp(this, 6));
+        etValue.setBackground(Skin.roundRectStroke(Skin.BG_ELEV, Skin.DIVIDER, this, 10, 1f));
+        etValue.setPadding(Skin.dp(this, 8), Skin.dp(this, 6), Skin.dp(this, 8), Skin.dp(this, 6));
 
-        LinearLayout.LayoutParams etLp = Ui.lp(0, Ui.dp(this, 40), 1f);
-        etLp.leftMargin  = Ui.dp(this, 6);
-        etLp.rightMargin = Ui.dp(this, 6);
+        LinearLayout.LayoutParams etLp = Skin.lp(0, Skin.dp(this, 40), 1f);
+        etLp.leftMargin  = Skin.dp(this, 6);
+        etLp.rightMargin = Skin.dp(this, 6);
         controls.addView(etValue, etLp);
 
         final TextView btnPlus = makeSmallStepBtn("+");
-        controls.addView(btnPlus, Ui.lp(Ui.dp(this, 40), Ui.dp(this, 40)));
+        controls.addView(btnPlus, Skin.lp(Skin.dp(this, 40), Skin.dp(this, 40)));
 
-        row.addView(controls, Ui.lp(MP, WC));
+        row.addView(controls, Skin.lp(MP, WC));
 
         String rangeHint = formatValue(def.min, decimal) + "  ···  "
-            + "def: " + formatValue(def.defaultValue, decimal) + "  ···  "
+            + Lang.f(12, formatValue(def.defaultValue, decimal)) + "  ···  "
             + formatValue(def.max, decimal);
-        TextView tvRange = Ui.text(this, rangeHint, 10, Ui.TEXT_TERTIARY, false);
+        TextView tvRange = Skin.text(this, rangeHint, 10, Skin.TEXT_TERTIARY, false);
         tvRange.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams rangeLp = Ui.lp(MP, WC);
-        rangeLp.topMargin = Ui.dp(this, 2);
+        LinearLayout.LayoutParams rangeLp = Skin.lp(MP, WC);
+        rangeLp.topMargin = Skin.dp(this, 2);
         row.addView(tvRange, rangeLp);
 
         etValue.addTextChangedListener(new TextWatcher() {
-                @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-                @Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
-                @Override public void afterTextChanged(Editable s) {
-                    String txt = s.toString().trim();
-                    if (txt.isEmpty() || txt.equals("-") || txt.equals(".")) return;
-                    try {
-                        float v = Float.parseFloat(txt);
-                        applyParam(module, uniformName, v);
-                    } catch (NumberFormatException ignored) {}
-                }
-            });
+				@Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+				@Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
+				@Override public void afterTextChanged(Editable s) {
+					String txt = s.toString().trim();
+					if (txt.isEmpty() || txt.equals("-") || txt.equals(".")) return;
+					try {
+						float v = Float.parseFloat(txt);
+						applyParam(module, uniformName, v);
+					} catch (NumberFormatException ignored) {}
+				}
+			});
 
         btnMinus.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    float cur = currentValue(etValue, module, uniformName, def);
-                    float next = cur - step;
-                    etValue.setText(formatValue(next, decimal));
-                    etValue.setSelection(etValue.getText().length());
-                    applyParam(module, uniformName, next);
-                }
-            });
+				@Override public void onClick(View v) {
+					float cur = currentValue(etValue, module, uniformName, def);
+					float next = cur - step;
+					etValue.setText(formatValue(next, decimal));
+					etValue.setSelection(etValue.getText().length());
+					applyParam(module, uniformName, next);
+				}
+			});
 
         btnPlus.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    float cur = currentValue(etValue, module, uniformName, def);
-                    float next = cur + step;
-                    etValue.setText(formatValue(next, decimal));
-                    etValue.setSelection(etValue.getText().length());
-                    applyParam(module, uniformName, next);
-                }
-            });
+				@Override public void onClick(View v) {
+					float cur = currentValue(etValue, module, uniformName, def);
+					float next = cur + step;
+					etValue.setText(formatValue(next, decimal));
+					etValue.setSelection(etValue.getText().length());
+					applyParam(module, uniformName, next);
+				}
+			});
 
         View.OnLongClickListener resetListener = new View.OnLongClickListener() {
             @Override public boolean onLongClick(View v) {
                 etValue.setText(formatValue(def.defaultValue, decimal));
                 etValue.setSelection(etValue.getText().length());
                 applyParam(module, uniformName, def.defaultValue);
-                Toast.makeText(MainActivity.this, def.label + " → default", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this,
+							   def.label + " → " + Lang.get(30),
+							   Toast.LENGTH_SHORT).show();
                 return true;
             }
         };
@@ -587,7 +640,7 @@ public class MainActivity extends Activity {
         return 5f;
     }
 
-    private float currentValue(EditText et, Module module, String uniformName, Module.ParamDef def) {
+    private float currentValue(EditText et, Mod module, String uniformName, Mod.Param def) {
         try {
             return Float.parseFloat(et.getText().toString().trim());
         } catch (NumberFormatException e) {
@@ -596,81 +649,80 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void applyParam(final Module module, final String uniformName, final float value) {
-        mModuleManager.setParamValue(module, uniformName, value);
+    private void applyParam(final Mod module, final String uniformName, final float value) {
+        mMods.setParamValue(module, uniformName, value);
     }
 
     private String formatValue(float v, boolean decimal) {
         if (decimal) return String.format("%.3f", v);
-
         if (v == (int) v) return String.valueOf((int) v);
         return String.format("%.1f", v);
     }
 
-    private Button buildCaptureButton() {
+    private Button captureButton() {
         mBtnCapture = new Button(this);
-        mBtnCapture.setText("Iniciar captura");
+        mBtnCapture.setText(Lang.get(1));
         mBtnCapture.setTextColor(0xFFFFFFFF);
         mBtnCapture.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        mBtnCapture.setTypeface(Ui.medium());
+        mBtnCapture.setTypeface(Skin.medium());
         mBtnCapture.setAllCaps(false);
         mBtnCapture.setStateListAnimator(null);
-        mBtnCapture.setBackground(Ui.buttonBgSolid(this, Ui.ACCENT, Ui.ACCENT_DIM, 14));
+        mBtnCapture.setBackground(Skin.buttonBgSolid(this, Skin.ACCENT, Skin.ACCENT_DIM, 14));
         return mBtnCapture;
     }
 
-    private View buildSecondaryRow() {
+    private View secondaryRow() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
 
         mBtnArea = new Button(this);
-        mBtnArea.setText("Área");
+        mBtnArea.setText(Lang.get(3));
         styleSecondary(mBtnArea);
-        LinearLayout.LayoutParams lpA = Ui.lp(0, Ui.dp(this, 48), 1f);
-        lpA.rightMargin = Ui.dp(this, 5);
+        LinearLayout.LayoutParams lpA = Skin.lp(0, Skin.dp(this, 48), 1f);
+        lpA.rightMargin = Skin.dp(this, 5);
         row.addView(mBtnArea, lpA);
 
         mBtnOverlay = new Button(this);
-        mBtnOverlay.setText("Overlay");
+        mBtnOverlay.setText(Lang.get(4));
         styleSecondary(mBtnOverlay);
-        LinearLayout.LayoutParams lpB = Ui.lp(0, Ui.dp(this, 48), 1f);
-        lpB.leftMargin = Ui.dp(this, 5);
+        LinearLayout.LayoutParams lpB = Skin.lp(0, Skin.dp(this, 48), 1f);
+        lpB.leftMargin = Skin.dp(this, 5);
         row.addView(mBtnOverlay, lpB);
 
         return row;
     }
 
-    private Button buildFiltersButton() {
+    private Button filtersButton() {
         mBtnFilters = new Button(this);
-        mBtnFilters.setText("Filtros");
-        mBtnFilters.setTextColor(Ui.TEXT_PRIMARY);
+        mBtnFilters.setText(Lang.get(5));
+        mBtnFilters.setTextColor(Skin.TEXT_PRIMARY);
         mBtnFilters.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        mBtnFilters.setTypeface(Ui.medium());
+        mBtnFilters.setTypeface(Skin.medium());
         mBtnFilters.setAllCaps(false);
         mBtnFilters.setStateListAnimator(null);
-        mBtnFilters.setBackground(Ui.buttonBgStroke(
-                                      this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 14, 1f));
+        mBtnFilters.setBackground(Skin.buttonBgStroke(
+									  this, Skin.BG_ELEV, Skin.DIVIDER, Skin.DIVIDER, 14, 1f));
         return mBtnFilters;
     }
 
     private void styleSecondary(Button b) {
-        b.setTextColor(Ui.TEXT_PRIMARY);
+        b.setTextColor(Skin.TEXT_PRIMARY);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         b.setAllCaps(false);
         b.setStateListAnimator(null);
-        b.setBackground(Ui.buttonBgStroke(
-                            this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 14, 1f));
+        b.setBackground(Skin.buttonBgStroke(
+							this, Skin.BG_ELEV, Skin.DIVIDER, Skin.DIVIDER, 14, 1f));
     }
 
     private TextView makeIconButton(String glyph) {
         TextView tv = new TextView(this);
         tv.setText(glyph);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        tv.setTextColor(Ui.TEXT_PRIMARY);
+        tv.setTextColor(Skin.TEXT_PRIMARY);
         tv.setGravity(Gravity.CENTER);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setBackground(Ui.buttonBgStroke(
-                             this, Ui.BG_ELEV, Ui.DIVIDER, Ui.DIVIDER, 22, 1f));
+        tv.setBackground(Skin.buttonBgStroke(
+							 this, Skin.BG_ELEV, Skin.DIVIDER, Skin.DIVIDER, 22, 1f));
         tv.setClickable(true);
         return tv;
     }
@@ -679,54 +731,54 @@ public class MainActivity extends Activity {
         TextView tv = new TextView(this);
         tv.setText(glyph);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        tv.setTextColor(Ui.TEXT_PRIMARY);
+        tv.setTextColor(Skin.TEXT_PRIMARY);
         tv.setGravity(Gravity.CENTER);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setBackground(Ui.buttonBgStroke(
-                             this, Ui.BG_ELEV, Ui.ACCENT_SOFT, Ui.DIVIDER, 10, 1f));
+        tv.setBackground(Skin.buttonBgStroke(
+							 this, Skin.BG_ELEV, Skin.ACCENT_SOFT, Skin.DIVIDER, 10, 1f));
         tv.setClickable(true);
         tv.setLongClickable(true);
         return tv;
     }
 
-    private void wireListeners() {
+    private void hookUp() {
         View importBtn = findViewById(android.R.id.button1);
         if (importBtn != null) {
             importBtn.setOnClickListener(new View.OnClickListener() {
-                    @Override public void onClick(View v) { importModule(); }
-                });
+					@Override public void onClick(View v) { importMod(); }
+				});
         }
 
         mBtnCapture.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { onCaptureBtnClicked(); }
-            });
+				@Override public void onClick(View v) { onCaptureTap(); }
+			});
         mBtnArea.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { openCaptureAreaSelector(); }
-            });
+				@Override public void onClick(View v) { pickCaptureArea(); }
+			});
         mBtnOverlay.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { openOverlayPositionSelector(); }
-            });
+				@Override public void onClick(View v) { pickOverlayArea(); }
+			});
         mBtnFilters.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    startActivityForResult(new Intent(MainActivity.this, FiltersActivity.class),
-                                           REQ_FILTERS);
-                }
-            });
+				@Override public void onClick(View v) {
+					startActivityForResult(new Intent(MainActivity.this, MyFiltersActivity.class),
+										   REQ_FILTERS);
+				}
+			});
     }
 
     private void updateStatusCard() {
-        List<Module> chain = mModuleManager.getEnabledChain();
+        List<Mod> chain = mMods.getEnabledChain();
 
-        if (mState == CaptureState.PROJECTING) {
-            mStatusDot.setBackground(Ui.circle(Ui.SUCCESS));
-            mTvStatusCaption.setText("CAPTURANDO");
+        if (mState == CapState.PROJECTING) {
+            mStatusDot.setBackground(Skin.circle(Skin.SUCCESS));
+            mTvStatusCaption.setText(Lang.get(7));
         } else {
-            mStatusDot.setBackground(Ui.circle(Ui.TEXT_TERTIARY));
-            mTvStatusCaption.setText("INACTIVO");
+            mStatusDot.setBackground(Skin.circle(Skin.TEXT_TERTIARY));
+            mTvStatusCaption.setText(Lang.get(6));
         }
 
-        if (mState == CaptureState.PROJECTING) {
-            CaptureApi api = CaptureService.getCaptureApi();
+        if (mState == CapState.PROJECTING) {
+            FramePipe api = CaptureService.getPipe();
             if (api != null) {
                 float fps = api.getFps();
                 mTvStatusFps.setText(fps < 0f ? "—" : String.format("%.0f", fps));
@@ -738,7 +790,7 @@ public class MainActivity extends Activity {
         }
 
         if (chain.isEmpty()) {
-            mTvStatusChain.setText("Ningún filtro activo");
+            mTvStatusChain.setText(Lang.get(8));
         } else {
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < chain.size(); i++) {
@@ -749,57 +801,55 @@ public class MainActivity extends Activity {
         }
 
         mBtnFilters.setText(chain.isEmpty()
-                            ? "Filtros"
-                            : "Filtros · " + chain.size() + (chain.size() == 1 ? " activo" : " activos"));
+							? Lang.get(5)
+							: Lang.f(chain.size() == 1 ? 14 : 13, chain.size()));
     }
 
-    private void setState(CaptureState state) {
+    private void setState(CapState state) {
         mState = state;
-        boolean capturing = (state == CaptureState.PROJECTING);
-        mBtnCapture.setText(capturing ? "Detener captura" : "Iniciar captura");
+        boolean capturing = (state == CapState.PROJECTING);
+        mBtnCapture.setText(Lang.get(capturing ? 2 : 1));
         mBtnArea.setEnabled(!capturing);
         mBtnOverlay.setEnabled(!capturing);
         updateStatusCard();
     }
 
-    private void setupPreview() {
-        mPreviewFrameA = buildPreviewTestBitmap(0);
-        mPreviewFrameB = buildPreviewTestBitmap(1);
+    private void initPreview() {
+        mPreviewFrameA = testPattern(0);
+        mPreviewFrameB = testPattern(1);
 
         mPreviewThread = new HandlerThread("PreviewGlThread");
         mPreviewThread.start();
         mPreviewHandler = new Handler(mPreviewThread.getLooper());
 
         mSurfacePreview.getHolder().addCallback(new SurfaceHolder.Callback() {
-                @Override public void surfaceCreated(final SurfaceHolder holder) {
-                    mPreviewHandler.post(new Runnable() {
-                            @Override public void run() {
-                                mPreviewRenderer = new GlRenderer();
-                                mPreviewGlReady  = mPreviewRenderer.init(holder);
-                                if (mPreviewGlReady) {
-
-                                    mPreviewRenderer.uploadBitmap(buildPreviewTestBitmap(0));
-
-                                    mPreviewRenderer.uploadToGenSlot(0, buildPreviewTestBitmap(0));
-                                    mPreviewRenderer.uploadToGenSlot(1, buildPreviewTestBitmap(1));
-                                    refreshPreviewShaderLocked();
-                                    startPreviewLoop();
-                                }
-                            }
-                        });
-                }
-                @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {}
-                @Override public void surfaceDestroyed(SurfaceHolder holder) {
-                    stopPreviewLoop();
-                    mPreviewHandler.post(new Runnable() {
-                            @Override public void run() {
-                                if (mPreviewShader   != null) { mPreviewShader.destroy();   mPreviewShader   = null; }
-                                if (mPreviewRenderer != null) { mPreviewRenderer.release(); mPreviewRenderer = null; }
-                                mPreviewGlReady = false;
-                            }
-                        });
-                }
-            });
+				@Override public void surfaceCreated(final SurfaceHolder holder) {
+					mPreviewHandler.post(new Runnable() {
+							@Override public void run() {
+								mPreviewPainter = new GlPainter();
+								mPreviewGlReady  = mPreviewPainter.init(holder);
+								if (mPreviewGlReady) {
+									mPreviewPainter.uploadBitmap(testPattern(0));
+									mPreviewPainter.uploadSlot(0, testPattern(0));
+									mPreviewPainter.uploadSlot(1, testPattern(1));
+									reloadPreviewShader();
+									startPreviewLoop();
+								}
+							}
+						});
+				}
+				@Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {}
+				@Override public void surfaceDestroyed(SurfaceHolder holder) {
+					stopPreviewLoop();
+					mPreviewHandler.post(new Runnable() {
+							@Override public void run() {
+								if (mPreviewShader   != null) { mPreviewShader.destroy();   mPreviewShader   = null; }
+								if (mPreviewPainter != null) { mPreviewPainter.release(); mPreviewPainter = null; }
+								mPreviewGlReady = false;
+							}
+						});
+				}
+			});
     }
 
     private void startPreviewLoop() {
@@ -814,42 +864,42 @@ public class MainActivity extends Activity {
         if (mPreviewHandler != null) mPreviewHandler.removeCallbacks(mPreviewLoop);
     }
 
-    private void refreshPreviewShaderLocked() {
+    private void reloadPreviewShader() {
         if (mPreviewShader != null) { mPreviewShader.destroy(); mPreviewShader = null; }
-        List<Module> shaderChain = mModuleManager.getEnabledChain();
-        final Module active = shaderChain.isEmpty() ? null : shaderChain.get(0);
+        List<Mod> shaderChain = mMods.getEnabledChain();
+        final Mod active = shaderChain.isEmpty() ? null : shaderChain.get(0);
         if (active != null
             && active.getVertexShader() != null && active.getFragmentShader() != null) {
             try {
-                mPreviewShader = new ShaderFilter(
+                mPreviewShader = new GlProgram(
                     active.getVertexShader(), active.getFragmentShader(), active.getParams());
             } catch (RuntimeException e) { mPreviewShader = null; }
         }
         runOnUiThread(new Runnable() {
-                @Override public void run() {
-                    if (mTvPreviewHint != null) {
-                        Module fg = mModuleManager.getActiveFrameGenModule();
-                        boolean fgOn = (fg != null && fg.isEnabled());
-                        boolean modOn = (active != null && mPreviewShader != null);
-                        mTvPreviewHint.setVisibility(
-                            (fgOn || modOn) ? View.GONE : View.VISIBLE);
-                    }
-                }
-            });
+				@Override public void run() {
+					if (mTvPreviewHint != null) {
+						Mod fg = mMods.getActiveFgMod();
+						boolean fgOn = (fg != null && fg.isEnabled());
+						boolean modOn = (active != null && mPreviewShader != null);
+						mTvPreviewHint.setVisibility(
+							(fgOn || modOn) ? View.GONE : View.VISIBLE);
+					}
+				}
+			});
     }
 
-    private void refreshPreviewForActiveModuleChange() {
+    private void onActiveModChanged() {
         if (mPreviewHandler != null) {
             mPreviewHandler.post(new Runnable() {
-                    @Override public void run() { refreshPreviewShaderLocked(); }
-                });
+					@Override public void run() { reloadPreviewShader(); }
+				});
         }
         runOnUiThread(new Runnable() {
-                @Override public void run() { rebuildParamsPanel(); }
-            });
+				@Override public void run() { refillParams(); }
+			});
     }
 
-    private Bitmap buildPreviewTestBitmap(int variant) {
+    private Bitmap testPattern(int variant) {
         int w = 480, h = 300;
         Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
@@ -891,23 +941,23 @@ public class MainActivity extends Activity {
         return bmp;
     }
 
-    private void openCaptureAreaSelector() {
-        startActivityForResult(new Intent(this, CaptureAreaActivity.class), REQ_CAPTURE_AREA);
+    private void pickCaptureArea() {
+        startActivityForResult(new Intent(this, CropActivity.class), REQ_CAPTURE_AREA);
     }
 
-    private void openOverlayPositionSelector() {
-        startActivityForResult(new Intent(this, OverlayPositionActivity.class), REQ_OVERLAY_POS);
+    private void pickOverlayArea() {
+        startActivityForResult(new Intent(this, MoveOverlayActivity.class), REQ_OVERLAY_POS);
     }
 
-    private void onCaptureBtnClicked() {
-        if (mState == CaptureState.IDLE) startCaptureFlow();
+    private void onCaptureTap() {
+        if (mState == CapState.IDLE) beginCapture();
         else stopCapture();
     }
 
-    private void startCaptureFlow() {
+    private void beginCapture() {
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
             Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                  Uri.parse("package:" + getPackageName()));
+								  Uri.parse("package:" + getPackageName()));
             startActivityForResult(i, REQ_OVERLAY);
         } else {
             requestProjection();
@@ -918,8 +968,8 @@ public class MainActivity extends Activity {
         startActivityForResult(mProjectionManager.createScreenCaptureIntent(), REQ_PROJECTION);
     }
 
-    private void launchCaptureService(int resultCode, Intent data) {
-        CaptureService.setModuleManager(mModuleManager);
+    private void runCapture(int resultCode, Intent data) {
+        CaptureService.setMods(mMods);
         Intent svc = new Intent(this, CaptureService.class);
         svc.putExtra(CaptureService.EXTRA_RESULT_CODE, resultCode);
         svc.putExtra(CaptureService.EXTRA_RESULT_DATA, data);
@@ -935,34 +985,34 @@ public class MainActivity extends Activity {
             svc.putExtra(CaptureService.EXTRA_OVERLAY_RIGHT,  mOverlayRect.right);
             svc.putExtra(CaptureService.EXTRA_OVERLAY_BOTTOM, mOverlayRect.bottom);
         }
-        boolean fpsOverlay = getSharedPreferences(FiltersActivity.PREFS_NAME, MODE_PRIVATE)
-            .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
+        boolean fpsOverlay = getSharedPreferences(MyFiltersActivity.PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(MyFiltersActivity.PREF_FPS_OVERLAY, false);
         svc.putExtra(CaptureService.EXTRA_FPS_OVERLAY, fpsOverlay);
 
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc); else startService(svc);
-        setState(CaptureState.PROJECTING);
+        setState(CapState.PROJECTING);
     }
 
     private void stopCapture() {
         stopService(new Intent(this, CaptureService.class));
-        setState(CaptureState.IDLE);
-        CaptureService.setModuleManager(null);
+        setState(CapState.IDLE);
+        CaptureService.setMods(null);
     }
 
-    private void importModule() {
+    private void importMod() {
         new AlertDialog.Builder(this)
-            .setTitle("Importar shader")
-            .setItems(new CharSequence[]{"Archivo local", "Tienda"},
-            new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface d, int which) {
-                    if (which == 0) importModuleLocal(); else openShaderStore();
-                }
-            })
-            .setNegativeButton("Cancelar", null)
+            .setTitle(Lang.get(15))
+            .setItems(new CharSequence[]{Lang.get(16), Lang.get(17)},
+			new DialogInterface.OnClickListener() {
+				@Override public void onClick(DialogInterface d, int which) {
+					if (which == 0) importModLocal(); else openStore();
+				}
+			})
+            .setNegativeButton(Lang.get(18), null)
             .show();
     }
 
-    private void importModuleLocal() {
+    private void importModLocal() {
         if (Build.VERSION.SDK_INT >= 23
             && checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
             != PackageManager.PERMISSION_GRANTED) {
@@ -972,15 +1022,15 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void openShaderStore() {
-        startActivityForResult(new Intent(this, ShaderStoreActivity.class), REQ_STORE);
+    private void openStore() {
+        startActivityForResult(new Intent(this, StoreActivity.class), REQ_STORE);
     }
 
     private void openFilePicker() {
         Intent i = new Intent(Intent.ACTION_GET_CONTENT);
         i.setType("*/*");
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(Intent.createChooser(i, "Importar módulo"), REQ_PICK_MODULE);
+        startActivityForResult(Intent.createChooser(i, Lang.get(26)), REQ_PICK_MODULE);
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -990,15 +1040,15 @@ public class MainActivity extends Activity {
                 requestProjection();
                 break;
             case REQ_PROJECTION:
-                if (resultCode == RESULT_OK) launchCaptureService(resultCode, data);
+                if (resultCode == RESULT_OK) runCapture(resultCode, data);
                 break;
             case REQ_PICK_MODULE:
                 if (resultCode == RESULT_OK && data != null && data.getData() != null) {
                     try {
-                        mModuleManager.installFromUri(data.getData());
-                        Toast.makeText(this, "Shader instalado", Toast.LENGTH_SHORT).show();
+                        mMods.installFromUri(data.getData());
+                        Toast.makeText(this, Lang.get(20), Toast.LENGTH_SHORT).show();
                     } catch (Exception e) {
-                        Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, Lang.f(21, e.getMessage()), Toast.LENGTH_LONG).show();
                     }
                 }
                 break;
@@ -1006,52 +1056,53 @@ public class MainActivity extends Activity {
                 if (resultCode == RESULT_OK && data != null) {
                     DisplayMetrics m = new DisplayMetrics();
                     getWindowManager().getDefaultDisplay().getRealMetrics(m);
-                    int l = data.getIntExtra(CaptureAreaActivity.RESULT_LEFT,   0);
-                    int t = data.getIntExtra(CaptureAreaActivity.RESULT_TOP,    0);
-                    int r = data.getIntExtra(CaptureAreaActivity.RESULT_RIGHT,  m.widthPixels);
-                    int b = data.getIntExtra(CaptureAreaActivity.RESULT_BOTTOM, m.heightPixels);
+                    int l = data.getIntExtra(CropActivity.RESULT_LEFT,   0);
+                    int t = data.getIntExtra(CropActivity.RESULT_TOP,    0);
+                    int r = data.getIntExtra(CropActivity.RESULT_RIGHT,  m.widthPixels);
+                    int b = data.getIntExtra(CropActivity.RESULT_BOTTOM, m.heightPixels);
                     mCaptureRect = new Rect(l, t, r, b);
-                    Toast.makeText(this, "Área: " + mCaptureRect.width() + "×" + mCaptureRect.height(),
-                                   Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this,
+								   Lang.f(22, mCaptureRect.width(), mCaptureRect.height()),
+								   Toast.LENGTH_SHORT).show();
                 }
                 break;
             case REQ_OVERLAY_POS:
                 if (resultCode == RESULT_OK && data != null) {
                     DisplayMetrics m = new DisplayMetrics();
                     getWindowManager().getDefaultDisplay().getRealMetrics(m);
-                    int l = data.getIntExtra(OverlayPositionActivity.RESULT_LEFT,   0);
-                    int t = data.getIntExtra(OverlayPositionActivity.RESULT_TOP,    0);
-                    int r = data.getIntExtra(OverlayPositionActivity.RESULT_RIGHT,  m.widthPixels);
-                    int b = data.getIntExtra(OverlayPositionActivity.RESULT_BOTTOM, m.heightPixels);
+                    int l = data.getIntExtra(MoveOverlayActivity.RESULT_LEFT,   0);
+                    int t = data.getIntExtra(MoveOverlayActivity.RESULT_TOP,    0);
+                    int r = data.getIntExtra(MoveOverlayActivity.RESULT_RIGHT,  m.widthPixels);
+                    int b = data.getIntExtra(MoveOverlayActivity.RESULT_BOTTOM, m.heightPixels);
                     mOverlayRect = new Rect(l, t, r, b);
-                    Toast.makeText(this, "Overlay: " + mOverlayRect.width() + "×" + mOverlayRect.height(),
-                                   Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this,
+								   Lang.f(23, mOverlayRect.width(), mOverlayRect.height()),
+								   Toast.LENGTH_SHORT).show();
                 }
                 break;
             case REQ_STORE:
                 if (resultCode == RESULT_OK) {
                     String installedName = data != null
-                        ? data.getStringExtra(ShaderStoreActivity.RESULT_EXTRA_NAME) : null;
-                    mModuleManager.reload();
+                        ? data.getStringExtra(StoreActivity.RESULT_EXTRA_NAME) : null;
+                    mMods.reload();
                     Toast.makeText(this,
-                                   installedName != null ? "Shader instalado: " + installedName
-                                   : "Shader instalado",
-                                   Toast.LENGTH_SHORT).show();
-                    refreshPreviewForActiveModuleChange();
+								   installedName != null ? Lang.f(24, installedName) : Lang.get(20),
+								   Toast.LENGTH_SHORT).show();
+                    onActiveModChanged();
                 }
                 break;
             case REQ_FILTERS:
                 boolean fpsEnabled = getSharedPreferences(
-                    FiltersActivity.PREFS_NAME, MODE_PRIVATE)
-                    .getBoolean(FiltersActivity.PREF_FPS_OVERLAY, false);
-                if (mState == CaptureState.PROJECTING) {
+                    MyFiltersActivity.PREFS_NAME, MODE_PRIVATE)
+                    .getBoolean(MyFiltersActivity.PREF_FPS_OVERLAY, false);
+                if (mState == CapState.PROJECTING) {
                     Intent fpsBroadcast = new Intent(CaptureService.ACTION_FPS_OVERLAY);
                     fpsBroadcast.setPackage(getPackageName());
                     fpsBroadcast.putExtra(CaptureService.EXTRA_FPS_ENABLED, fpsEnabled);
                     sendBroadcast(fpsBroadcast);
                 }
-                mModuleManager.reload();
-                refreshPreviewForActiveModuleChange();
+                mMods.reload();
+                onActiveModChanged();
                 updateStatusCard();
                 break;
         }
@@ -1063,7 +1114,7 @@ public class MainActivity extends Activity {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
                 openFilePicker();
             else
-                Toast.makeText(this, "Permiso denegado", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, Lang.get(19), Toast.LENGTH_LONG).show();
         }
     }
 }

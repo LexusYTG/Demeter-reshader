@@ -38,17 +38,17 @@ package com.Lexus2025.demeter;
 import java.util.HashMap;
 import java.util.Map;
 
-public class Module {
+public class Mod {
 
     public enum Type { MODIFIER, RENDERER, FRAMEGEN, FRAMEGEN_G3 }
 
-    public static class ParamDef {
+    public static class Param {
         public final String label;
         public final float  min;
         public final float  max;
         public final float  defaultValue;
 
-        public ParamDef(String label, float min, float max, float defaultValue) {
+        public Param(String label, float min, float max, float defaultValue) {
             this.label        = label;
             this.min          = min;
             this.max          = max;
@@ -63,17 +63,17 @@ public class Module {
     private final String mVertexShader;
     private final String mFragmentShader;
     private final Map<String, Float>    mParams;
-    private final Map<String, Module.ParamDef> mParamDefs;
+    private final Map<String, Mod.Param> mParamDefs;
     private boolean mEnabled;
-    private ShaderFilter mShaderFilter;
+    private GlProgram mGlProgram;
     private String mCompilationError;
-    private ShaderFilter.CompileException mCompilationException;
+    private GlProgram.CompileException mCompilationException;
 
     private volatile String mCachedJson;
 
-    public Module(String name, String author, String version, Type type,
+    public Mod(String name, String author, String version, Type type,
                   String vertexShader, String fragmentShader,
-                  Map<String, Float> params, Map<String, ParamDef> paramDefs) {
+                  Map<String, Float> params, Map<String, Param> paramDefs) {
         mName           = name;
         mAuthor         = author;
         mVersion        = version;
@@ -81,7 +81,7 @@ public class Module {
         mVertexShader   = vertexShader;
         mFragmentShader = fragmentShader;
         mParams         = params    != null ? params    : new HashMap<String, Float>();
-        mParamDefs      = paramDefs != null ? paramDefs : new HashMap<String, ParamDef>();
+        mParamDefs      = paramDefs != null ? paramDefs : new HashMap<String, Param>();
         mEnabled        = false;
         mCompilationError = null;
         mCompilationException = null;
@@ -95,7 +95,7 @@ public class Module {
     public String getVertexShader()   { return mVertexShader; }
     public String getFragmentShader() { return mFragmentShader; }
     public Map<String, Float>    getParams()    { return mParams; }
-    public Map<String, Module.ParamDef> getParamDefs() { return mParamDefs; }
+    public Map<String, Mod.Param> getParamDefs() { return mParamDefs; }
     public boolean isEnabled()        { return mEnabled; }
 
     public void setEnabled(boolean enabled) {
@@ -115,26 +115,26 @@ public class Module {
     public String getCachedJson()             { return mCachedJson; }
     public void   setCachedJson(String json)  { mCachedJson = json; }
 
-    public ShaderFilter getShaderFilter() {
-        if (mShaderFilter == null && mVertexShader != null && mFragmentShader != null) {
+    public GlProgram getGlProgram() {
+        if (mGlProgram == null && mVertexShader != null && mFragmentShader != null) {
             try {
-                mShaderFilter = new ShaderFilter(mVertexShader, mFragmentShader, mParams);
+                mGlProgram = new GlProgram(mVertexShader, mFragmentShader, mParams);
                 mCompilationError     = null;
                 mCompilationException = null;
-            } catch (ShaderFilter.CompileException e) {
+            } catch (GlProgram.CompileException e) {
                 mCompilationException = e;
                 mCompilationError     = e.getFriendlyMessage();
                 setEnabled(false);
-                android.util.Log.e("Module",
+                android.util.Log.e("Mod",
 								   "Fallo compilando '" + mName + "':\n" + mCompilationError);
             } catch (RuntimeException e) {
                 mCompilationError = "Error inesperado al compilar: " + e.getMessage();
                 setEnabled(false);
-                android.util.Log.e("Module",
+                android.util.Log.e("Mod",
 								   "Error inesperado compilando '" + mName + "'", e);
             }
         }
-        return mShaderFilter;
+        return mGlProgram;
     }
 
     /**
@@ -146,11 +146,11 @@ public class Module {
         if (mVertexShader == null || mFragmentShader == null) {
             return "El módulo no tiene vertexShader ni fragmentShader definidos.";
         }
-        ShaderFilter.Validator.Result vr = ShaderFilter.Validator.validate(
+        GlProgram.Checker.Report vr = GlProgram.Checker.validate(
             mVertexShader, true, es3Available);
         if (!vr.isOk()) return "VERTEX shader:\n" + vr.error;
 
-        ShaderFilter.Validator.Result fr = ShaderFilter.Validator.validate(
+        GlProgram.Checker.Report fr = GlProgram.Checker.validate(
             mFragmentShader, false, es3Available);
         if (!fr.isOk()) return "FRAGMENT shader:\n" + fr.error;
 
@@ -164,11 +164,11 @@ public class Module {
      */
     public String getCompilationError() {
         if (mCompilationError != null) return mCompilationError;
-        mCompilationError = validate(GlRenderer.isEs3Supported());
+        mCompilationError = validate(GlPainter.isEs3Supported());
         return mCompilationError;
     }
 
-    public ShaderFilter.CompileException getCompilationException() {
+    public GlProgram.CompileException getCompilationException() {
         return mCompilationException;
     }
 
@@ -178,9 +178,9 @@ public class Module {
     }
 
     public void destroyShader() {
-        if (mShaderFilter != null) {
-            mShaderFilter.destroy();
-            mShaderFilter = null;
+        if (mGlProgram != null) {
+            mGlProgram.destroy();
+            mGlProgram = null;
         }
     }
 
