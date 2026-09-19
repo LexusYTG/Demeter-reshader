@@ -6,8 +6,28 @@
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uDispersion;\nuniform float uFacets;\nuniform float uIntensity;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 c = uv - 0.5;\n    float angle = atan(c.y, c.x);\n    float facets = max(2.0, floor(uFacets));\n    float facet = floor(angle / 6.2831853 * facets + 0.5) / facets;\n    float a = facet * 6.2831853;\n    vec2 dir = vec2(cos(a), sin(a));\n    float disp = uDispersion * 0.01;\n    vec3 col;\n    col.r = texture2D(uTexture, uv + dir * disp).r;\n    col.g = texture2D(uTexture, uv).g;\n    col.b = texture2D(uTexture, uv - dir * disp).b;\n    float spec = pow(abs(sin(facet * facets * 3.14)), 4.0);\n    col += vec3(spec * 0.15 * uIntensity);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
   "paramDefs": {
-    "uDispersion": { "label": "Dispersión", "min": 0.0, "max": 5.0, "default": 2.0 },
-    "uFacets":     { "label": "Facetas", "min": 3.0, "max": 16.0, "default": 6.0 },
-    "uIntensity":  { "label": "Brillo", "min": 0.0, "max": 2.0, "default": 1.0 }
+    "uDispersion": {
+      "label": "Dispersión",
+      "min": 0.0,
+      "max": 5.0,
+      "default": 2.0
+    },
+    "uFacets": {
+      "label": "Facetas",
+      "min": 3.0,
+      "max": 16.0,
+      "default": 6.0
+    },
+    "uIntensity": {
+      "label": "Brillo",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 1.0
+    }
+  },
+  "params": {
+    "uDispersion": 2.0,
+    "uFacets": 6.0,
+    "uIntensity": 1.0
   }
 }

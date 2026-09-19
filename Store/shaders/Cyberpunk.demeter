@@ -6,7 +6,21 @@
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uContrast;\nvoid main() {\n    vec3 src = texture2D(uTexture, vTexCoord).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    lum = clamp((lum - 0.5) * (1.0 + uContrast) + 0.5, 0.0, 1.0);\n    vec3 shadow = vec3(0.05, 0.15, 0.35);\n    vec3 mid    = vec3(0.35, 0.10, 0.55);\n    vec3 high   = vec3(1.00, 0.15, 0.65);\n    vec3 peak   = vec3(0.40, 1.00, 1.00);\n    vec3 col;\n    if (lum < 0.33)      col = mix(shadow, mid, lum / 0.33);\n    else if (lum < 0.66) col = mix(mid, high, (lum - 0.33) / 0.33);\n    else                 col = mix(high, peak, (lum - 0.66) / 0.34);\n    gl_FragColor = vec4(mix(src, col, uIntensity), 1.0);\n}\n",
   "paramDefs": {
-    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.85 },
-    "uContrast":  { "label": "Contraste", "min": 0.0, "max": 2.0, "default": 0.6 }
+    "uIntensity": {
+      "label": "Intensidad",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.85
+    },
+    "uContrast": {
+      "label": "Contraste",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 0.6
+    }
+  },
+  "params": {
+    "uIntensity": 0.85,
+    "uContrast": 0.6
   }
 }

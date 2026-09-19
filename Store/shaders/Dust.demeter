@@ -5,10 +5,29 @@
   "type": "MODIFIER",
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uDensity;\nuniform float uIntensity;\nuniform float uTime;\nfloat hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    float dust = 0.0;\n    for (int i = 0; i < 6; i++) {\n        float fi = float(i);\n        vec2 p = vec2(hash(vec2(fi, 1.0)), hash(vec2(fi, 2.0)));\n        p.x += sin(uTime * 0.3 + fi) * 0.05;\n        p.y = fract(p.y + uTime * 0.02 + fi * 0.15);\n        float d = length(uv - p);\n        dust += smoothstep(0.02, 0.0, d);\n    }\n    dust *= uDensity;\n    vec3 col = src + vec3(dust * uIntensity);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
-  "params": { "uTime": 0.0 },
+  "params": {
+    "uTime": 0.0,
+    "uDensity": 1.0,
+    "uIntensity": 0.5
+  },
   "paramDefs": {
-    "uDensity":   { "label": "Densidad", "min": 0.0, "max": 3.0, "default": 1.0 },
-    "uIntensity": { "label": "Brillo", "min": 0.0, "max": 2.0, "default": 0.5 },
-    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+    "uDensity": {
+      "label": "Densidad",
+      "min": 0.0,
+      "max": 3.0,
+      "default": 1.0
+    },
+    "uIntensity": {
+      "label": "Brillo",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 0.5
+    },
+    "uTime": {
+      "label": "Animación",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0
+    }
   }
 }

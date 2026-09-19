@@ -6,8 +6,28 @@
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uCurvature;\nuniform float uGlow;\nuniform float uScan;\nvoid main() {\n    vec2 uv = vTexCoord * 2.0 - 1.0;\n    float r2 = dot(uv, uv);\n    uv *= 1.0 + uCurvature * r2;\n    uv = uv * 0.5 + 0.5;\n    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {\n        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n        return;\n    }\n    vec3 col = texture2D(uTexture, uv).rgb;\n    float lum = dot(col, vec3(0.299, 0.587, 0.114));\n    vec3 green = vec3(lum * 0.15, lum, lum * 0.25);\n    green += vec3(0.0, smoothstep(0.75, 1.0, lum) * uGlow, 0.0);\n    float scan = 0.75 + 0.25 * sin(uv.y * 900.0);\n    green *= mix(1.0, scan, uScan);\n    vec2 c = uv - 0.5;\n    float vig = 1.0 - smoothstep(0.35, 0.8, length(c));\n    green *= mix(0.3, 1.0, vig);\n    gl_FragColor = vec4(green, 1.0);\n}\n",
   "paramDefs": {
-    "uCurvature": { "label": "Curvatura", "min": 0.0, "max": 0.5, "default": 0.15 },
-    "uGlow":      { "label": "Glow", "min": 0.0, "max": 1.0, "default": 0.5 },
-    "uScan":      { "label": "Scanlines", "min": 0.0, "max": 1.0, "default": 0.7 }
+    "uCurvature": {
+      "label": "Curvatura",
+      "min": 0.0,
+      "max": 0.5,
+      "default": 0.15
+    },
+    "uGlow": {
+      "label": "Glow",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5
+    },
+    "uScan": {
+      "label": "Scanlines",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.7
+    }
+  },
+  "params": {
+    "uCurvature": 0.15,
+    "uGlow": 0.5,
+    "uScan": 0.7
   }
 }

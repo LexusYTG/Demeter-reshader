@@ -5,11 +5,36 @@
   "type": "MODIFIER",
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uRings;\nuniform float uSpeed;\nuniform float uIntensity;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 c = uv - 0.5;\n    float r = length(c);\n    float a = atan(c.y, c.x);\n    float spiral = a * 3.0 + r * uRings + uTime * uSpeed;\n    float band = sin(spiral * 3.14159);\n    vec3 tint = vec3(band * 0.5 + 0.5, (band + 1.0) * 0.3, 1.0 - (band * 0.5 + 0.5));\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 col = mix(src, tint * (dot(src, vec3(0.333)) + 0.3), uIntensity);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
-  "params": { "uTime": 0.0 },
+  "params": {
+    "uTime": 0.0,
+    "uRings": 25.0,
+    "uSpeed": 1.5,
+    "uIntensity": 0.75
+  },
   "paramDefs": {
-    "uRings":     { "label": "Anillos", "min": 5.0, "max": 60.0, "default": 25.0 },
-    "uSpeed":     { "label": "Velocidad", "min": 0.0, "max": 5.0, "default": 1.5 },
-    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.75 },
-    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+    "uRings": {
+      "label": "Anillos",
+      "min": 5.0,
+      "max": 60.0,
+      "default": 25.0
+    },
+    "uSpeed": {
+      "label": "Velocidad",
+      "min": 0.0,
+      "max": 5.0,
+      "default": 1.5
+    },
+    "uIntensity": {
+      "label": "Intensidad",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.75
+    },
+    "uTime": {
+      "label": "Animación",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0
+    }
   }
 }

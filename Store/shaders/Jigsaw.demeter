@@ -6,8 +6,28 @@
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uPieces;\nuniform float uShift;\nuniform float uGap;\nfloat hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 p = uv * uPieces;\n    vec2 ip = floor(p);\n    vec2 fp = fract(p);\n    vec2 off = (vec2(hash(ip), hash(ip + 0.5)) - 0.5) * uShift * 0.15;\n    vec2 srcUV = uv + off;\n    vec3 col = texture2D(uTexture, srcUV).rgb;\n    float gapX = smoothstep(0.0, uGap, fp.x) * smoothstep(1.0, 1.0 - uGap, fp.x);\n    float gapY = smoothstep(0.0, uGap, fp.y) * smoothstep(1.0, 1.0 - uGap, fp.y);\n    float gap = gapX * gapY;\n    col *= gap;\n    col += vec3(0.15) * (1.0 - gap);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
   "paramDefs": {
-    "uPieces": { "label": "Piezas", "min": 4.0, "max": 20.0, "default": 8.0 },
-    "uShift":  { "label": "Desplazar", "min": 0.0, "max": 3.0, "default": 1.0 },
-    "uGap":    { "label": "Espacio", "min": 0.0, "max": 0.15, "default": 0.04 }
+    "uPieces": {
+      "label": "Piezas",
+      "min": 4.0,
+      "max": 20.0,
+      "default": 8.0
+    },
+    "uShift": {
+      "label": "Desplazar",
+      "min": 0.0,
+      "max": 3.0,
+      "default": 1.0
+    },
+    "uGap": {
+      "label": "Espacio",
+      "min": 0.0,
+      "max": 0.15,
+      "default": 0.04
+    }
+  },
+  "params": {
+    "uPieces": 8.0,
+    "uShift": 1.0,
+    "uGap": 0.04
   }
 }

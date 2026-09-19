@@ -9,12 +9,33 @@
   "params": {
     "uSearchRadius": 4.0,
     "uTexelSize": 0.000925,
-    "uDebug": 0.0
+    "uDebug": 0.0,
+    "uTime": 0.0
   },
   "paramDefs": {
-    "uSearchRadius": { "label": "Radio búsqueda (px)", "min": 0.0,  "max": 16.0,    "default": 4.0     },
-    "uTexelSize":    { "label": "Texel size (1/ancho)", "min": 0.0001, "max": 0.005,  "default": 0.000925 },
-    "uDebug":        { "label": "Debug motion",     "min": 0.0,  "max": 1.0,     "default": 0.0     },
-    "uTime":         { "label": "Tiempo",           "min": 0.0,  "max": 100.0,   "default": 0.0     }
+    "uSearchRadius": {
+      "label": "Radio búsqueda (px)",
+      "min": 0.0,
+      "max": 16.0,
+      "default": 4.0
+    },
+    "uTexelSize": {
+      "label": "Texel size (1/ancho)",
+      "min": 0.0001,
+      "max": 0.005,
+      "default": 0.000925
+    },
+    "uDebug": {
+      "label": "Debug motion",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0
+    },
+    "uTime": {
+      "label": "Tiempo",
+      "min": 0.0,
+      "max": 100.0,
+      "default": 0.0
+    }
   }
 }

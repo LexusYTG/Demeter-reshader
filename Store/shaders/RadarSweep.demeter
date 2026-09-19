@@ -5,11 +5,36 @@
   "type": "MODIFIER",
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uSpeed;\nuniform float uIntensity;\nuniform float uRange;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 c = uv - 0.5;\n    float r = length(c);\n    float a = atan(c.y, c.x);\n    float sweep = fract(uTime * uSpeed);\n    float sweepAngle = sweep * 6.2831853 - 3.14159;\n    float diff = a - sweepAngle;\n    diff = mod(diff + 3.14159, 6.2831853) - 3.14159;\n    float beam = smoothstep(0.5, 0.0, abs(diff));\n    beam *= smoothstep(uRange, uRange * 0.5, r);\n    float rings = fract(r * 15.0 - uTime * uSpeed * 2.0);\n    float ring = smoothstep(0.9, 1.0, rings);\n    ring *= smoothstep(uRange, uRange * 0.7, r);\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 radarGreen = vec3(0.2, 1.0, 0.4);\n    vec3 col = src * 0.3;\n    col += radarGreen * (beam * 0.6 + ring * 0.15) * uIntensity;\n    col += radarGreen * smoothstep(uRange * 0.9, uRange, r) * 0.3;\n    col += radarGreen * smoothstep(0.02, 0.0, r) * 0.8;\n    gl_FragColor = vec4(col, 1.0);\n}\n",
-  "params": { "uTime": 0.0 },
+  "params": {
+    "uTime": 0.0,
+    "uSpeed": 0.7,
+    "uIntensity": 1.0,
+    "uRange": 0.7
+  },
   "paramDefs": {
-    "uSpeed":     { "label": "Velocidad", "min": 0.1, "max": 3.0, "default": 0.7 },
-    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 2.0, "default": 1.0 },
-    "uRange":     { "label": "Alcance", "min": 0.3, "max": 0.9, "default": 0.7 },
-    "uTime":      { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+    "uSpeed": {
+      "label": "Velocidad",
+      "min": 0.1,
+      "max": 3.0,
+      "default": 0.7
+    },
+    "uIntensity": {
+      "label": "Intensidad",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 1.0
+    },
+    "uRange": {
+      "label": "Alcance",
+      "min": 0.3,
+      "max": 0.9,
+      "default": 0.7
+    },
+    "uTime": {
+      "label": "Animación",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0
+    }
   }
 }

@@ -5,10 +5,29 @@
   "type": "MODIFIER",
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uStrength;\nuniform float uSpeed;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 c = uv - 0.5;\n    float r = length(c);\n    float a = atan(c.y, c.x);\n    a += uStrength * (1.0 - r) + uTime * uSpeed * (1.0 - r);\n    vec2 warpUV = vec2(cos(a), sin(a)) * r + 0.5;\n    vec3 col = texture2D(uTexture, warpUV).rgb;\n    gl_FragColor = vec4(col, 1.0);\n}\n",
-  "params": { "uTime": 0.0 },
+  "params": {
+    "uTime": 0.0,
+    "uStrength": 1.5,
+    "uSpeed": 0.6
+  },
   "paramDefs": {
-    "uStrength": { "label": "Fuerza", "min": 0.0, "max": 6.0, "default": 1.5 },
-    "uSpeed":    { "label": "Velocidad", "min": -3.0, "max": 3.0, "default": 0.6 },
-    "uTime":     { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+    "uStrength": {
+      "label": "Fuerza",
+      "min": 0.0,
+      "max": 6.0,
+      "default": 1.5
+    },
+    "uSpeed": {
+      "label": "Velocidad",
+      "min": -3.0,
+      "max": 3.0,
+      "default": 0.6
+    },
+    "uTime": {
+      "label": "Animación",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0
+    }
   }
 }

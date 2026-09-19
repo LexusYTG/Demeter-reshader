@@ -5,11 +5,36 @@
   "type": "MODIFIER",
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uGhosting;\nuniform float uDropout;\nuniform float uDesat;\nuniform float uTime;\nfloat hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 col = texture2D(uTexture, uv).rgb * 0.75;\n    for (int i = 1; i <= 3; i++) {\n        float f = float(i);\n        vec3 g = texture2D(uTexture, uv - vec2(f * 0.008 * uGhosting, 0.0)).rgb;\n        col += g * (0.35 / f);\n    }\n    float line = floor(uv.y * 240.0);\n    float drop = hash(vec2(line, floor(uTime * 8.0)));\n    if (drop > 1.0 - uDropout * 0.05) {\n        col = mix(col, vec3(0.92, 0.9, 0.85), 0.7);\n    }\n    float lum = dot(col, vec3(0.299, 0.587, 0.114));\n    col = mix(col, vec3(lum), uDesat);\n    col += hash(uv * 500.0 + uTime) * 0.06 - 0.03;\n    gl_FragColor = vec4(col, 1.0);\n}\n",
-  "params": { "uTime": 0.0 },
+  "params": {
+    "uTime": 0.0,
+    "uGhosting": 1.0,
+    "uDropout": 0.3,
+    "uDesat": 0.35
+  },
   "paramDefs": {
-    "uGhosting": { "label": "Ghosting", "min": 0.0, "max": 2.0, "default": 1.0 },
-    "uDropout":  { "label": "Dropouts", "min": 0.0, "max": 1.0, "default": 0.3 },
-    "uDesat":    { "label": "Desaturar", "min": 0.0, "max": 1.0, "default": 0.35 },
-    "uTime":     { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+    "uGhosting": {
+      "label": "Ghosting",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 1.0
+    },
+    "uDropout": {
+      "label": "Dropouts",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.3
+    },
+    "uDesat": {
+      "label": "Desaturar",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.35
+    },
+    "uTime": {
+      "label": "Animación",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0
+    }
   }
 }

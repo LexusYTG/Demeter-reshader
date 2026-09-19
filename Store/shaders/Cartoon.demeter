@@ -6,8 +6,28 @@
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uLevels;\nuniform float uOutline;\nuniform float uEdgeThreshold;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 px = vec2(0.002);\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 n = texture2D(uTexture, uv + vec2(0.0, -px.y)).rgb;\n    vec3 s = texture2D(uTexture, uv + vec2(0.0,  px.y)).rgb;\n    vec3 e = texture2D(uTexture, uv + vec2( px.x, 0.0)).rgb;\n    vec3 w = texture2D(uTexture, uv + vec2(-px.x, 0.0)).rgb;\n    float dx = length(e - w);\n    float dy = length(n - s);\n    float edge = sqrt(dx * dx + dy * dy);\n    float isEdge = step(uEdgeThreshold, edge);\n    float levels = max(2.0, floor(uLevels));\n    vec3 quantized = floor(src * levels + 0.5) / levels;\n    quantized = mix(src, quantized, 0.9);\n    vec3 col = mix(quantized, vec3(0.0), isEdge * uOutline);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
   "paramDefs": {
-    "uLevels":        { "label": "Niveles", "min": 2.0, "max": 10.0, "default": 5.0 },
-    "uOutline":       { "label": "Contorno", "min": 0.0, "max": 1.0, "default": 1.0 },
-    "uEdgeThreshold": { "label": "Umbral borde", "min": 0.05, "max": 0.6, "default": 0.18 }
+    "uLevels": {
+      "label": "Niveles",
+      "min": 2.0,
+      "max": 10.0,
+      "default": 5.0
+    },
+    "uOutline": {
+      "label": "Contorno",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 1.0
+    },
+    "uEdgeThreshold": {
+      "label": "Umbral borde",
+      "min": 0.05,
+      "max": 0.6,
+      "default": 0.18
+    }
+  },
+  "params": {
+    "uLevels": 5.0,
+    "uOutline": 1.0,
+    "uEdgeThreshold": 0.18
   }
 }

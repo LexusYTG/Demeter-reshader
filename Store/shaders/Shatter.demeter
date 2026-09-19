@@ -5,11 +5,36 @@
   "type": "MODIFIER",
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uCracks;\nuniform float uShift;\nuniform float uLine;\nuniform float uTime;\nfloat hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 p = uv * uCracks;\n    vec2 ip = floor(p);\n    vec2 fp = fract(p);\n    vec2 off = vec2(0.0);\n    float minD = 1e10;\n    for (int y = -1; y <= 1; y++) {\n        for (int x = -1; x <= 1; x++) {\n            vec2 g = vec2(float(x), float(y));\n            vec2 cell = ip + g;\n            vec2 h = vec2(hash(cell), hash(cell + 0.5));\n            float d = length(fp - g - h);\n            if (d < minD) {\n                minD = d;\n                off = (h - 0.5) * uShift * 0.1;\n            }\n        }\n    }\n    vec2 srcUV = uv + off;\n    vec3 col = texture2D(uTexture, srcUV).rgb;\n    float crack = smoothstep(0.42, 0.5, minD);\n    col = mix(col, col + vec3(0.4), crack * uLine);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
-  "params": { "uTime": 0.0 },
+  "params": {
+    "uTime": 0.0,
+    "uCracks": 6.0,
+    "uShift": 1.0,
+    "uLine": 0.7
+  },
   "paramDefs": {
-    "uCracks": { "label": "Fragmentos", "min": 3.0, "max": 15.0, "default": 6.0 },
-    "uShift":  { "label": "Desplazamiento", "min": 0.0, "max": 3.0, "default": 1.0 },
-    "uLine":   { "label": "Grietas", "min": 0.0, "max": 1.0, "default": 0.7 },
-    "uTime":   { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+    "uCracks": {
+      "label": "Fragmentos",
+      "min": 3.0,
+      "max": 15.0,
+      "default": 6.0
+    },
+    "uShift": {
+      "label": "Desplazamiento",
+      "min": 0.0,
+      "max": 3.0,
+      "default": 1.0
+    },
+    "uLine": {
+      "label": "Grietas",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.7
+    },
+    "uTime": {
+      "label": "Animación",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0
+    }
   }
 }

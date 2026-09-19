@@ -6,7 +6,21 @@
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uIntensity;\nuniform float uSplit;\nvoid main() {\n    vec3 src = texture2D(uTexture, vTexCoord).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    vec3 shadow = vec3(0.05, 0.15, 0.20);\n    vec3 teal = vec3(0.10, 0.55, 0.55);\n    vec3 orange = vec3(0.95, 0.55, 0.15);\n    vec3 highlight = vec3(1.0, 0.85, 0.65);\n    vec3 col;\n    float split = uSplit;\n    if (lum < split) col = mix(shadow, teal, lum / split);\n    else col = mix(orange, highlight, (lum - split) / (1.0 - split));\n    gl_FragColor = vec4(mix(src, col, uIntensity), 1.0);\n}\n",
   "paramDefs": {
-    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.0, "default": 0.85 },
-    "uSplit":     { "label": "División", "min": 0.1, "max": 0.9, "default": 0.45 }
+    "uIntensity": {
+      "label": "Intensidad",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.85
+    },
+    "uSplit": {
+      "label": "División",
+      "min": 0.1,
+      "max": 0.9,
+      "default": 0.45
+    }
+  },
+  "params": {
+    "uIntensity": 0.85,
+    "uSplit": 0.45
   }
 }

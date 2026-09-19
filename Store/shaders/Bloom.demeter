@@ -6,7 +6,21 @@
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uThreshold;\nuniform float uIntensity;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec3 src = texture2D(uTexture, uv).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    float bright = smoothstep(uThreshold, 1.0, lum);\n    vec2 px = vec2(0.006);\n    vec3 b1 = texture2D(uTexture, uv + vec2(px.x, 0.0)).rgb;\n    vec3 b2 = texture2D(uTexture, uv - vec2(px.x, 0.0)).rgb;\n    vec3 b3 = texture2D(uTexture, uv + vec2(0.0, px.y)).rgb;\n    vec3 b4 = texture2D(uTexture, uv - vec2(0.0, px.y)).rgb;\n    float lumB = (dot(b1, vec3(0.299, 0.587, 0.114))\n                + dot(b2, vec3(0.299, 0.587, 0.114))\n                + dot(b3, vec3(0.299, 0.587, 0.114))\n                + dot(b4, vec3(0.299, 0.587, 0.114))) * 0.25;\n    float brightB = smoothstep(uThreshold, 1.0, lumB) * 0.25;\n    float total = bright + brightB;\n    vec3 col = src + vec3(total * uIntensity);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
   "paramDefs": {
-    "uThreshold": { "label": "Umbral", "min": 0.4, "max": 0.95, "default": 0.7 },
-    "uIntensity": { "label": "Intensidad", "min": 0.0, "max": 1.5, "default": 0.6 }
+    "uThreshold": {
+      "label": "Umbral",
+      "min": 0.4,
+      "max": 0.95,
+      "default": 0.7
+    },
+    "uIntensity": {
+      "label": "Intensidad",
+      "min": 0.0,
+      "max": 1.5,
+      "default": 0.6
+    }
+  },
+  "params": {
+    "uThreshold": 0.7,
+    "uIntensity": 0.6
   }
 }

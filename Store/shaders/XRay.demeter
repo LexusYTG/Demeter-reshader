@@ -6,7 +6,21 @@
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision mediump float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uBoneThreshold;\nuniform float uGlow;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 px = vec2(0.0015);\n    vec3 src = texture2D(uTexture, uv).rgb;\n    vec3 n = texture2D(uTexture, uv + vec2(0.0, -px.y)).rgb;\n    vec3 s = texture2D(uTexture, uv + vec2(0.0,  px.y)).rgb;\n    vec3 e = texture2D(uTexture, uv + vec2( px.x, 0.0)).rgb;\n    vec3 w = texture2D(uTexture, uv + vec2(-px.x, 0.0)).rgb;\n    float lum = dot(src, vec3(0.299, 0.587, 0.114));\n    float edge = length(e - w) + length(n - s);\n    float body = 1.0 - lum;\n    vec3 xray = vec3(body * 0.15, body * 0.4, body * 0.9);\n    float bone = smoothstep(uBoneThreshold, 1.0, edge);\n    xray += vec3(bone * 0.3, bone * 0.9, bone * 1.2) * uGlow;\n    gl_FragColor = vec4(xray, 1.0);\n}\n",
   "paramDefs": {
-    "uBoneThreshold": { "label": "Umbral hueso", "min": 0.1, "max": 1.0, "default": 0.4 },
-    "uGlow":          { "label": "Glow", "min": 0.0, "max": 3.0, "default": 1.2 }
+    "uBoneThreshold": {
+      "label": "Umbral hueso",
+      "min": 0.1,
+      "max": 1.0,
+      "default": 0.4
+    },
+    "uGlow": {
+      "label": "Glow",
+      "min": 0.0,
+      "max": 3.0,
+      "default": 1.2
+    }
+  },
+  "params": {
+    "uBoneThreshold": 0.4,
+    "uGlow": 1.2
   }
 }

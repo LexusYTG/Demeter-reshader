@@ -5,11 +5,36 @@
   "type": "MODIFIER",
   "vertexShader": "attribute vec4 aPosition;\nattribute vec2 aTexCoord;\nvarying vec2 vTexCoord;\nvoid main() {\n    gl_Position = aPosition;\n    vTexCoord = aTexCoord;\n}\n",
   "fragmentShader": "precision highp float;\nvarying vec2 vTexCoord;\nuniform sampler2D uTexture;\nuniform float uFacets;\nuniform float uSpeed;\nuniform float uShine;\nuniform float uTime;\nvoid main() {\n    vec2 uv = vTexCoord;\n    vec2 c = uv - 0.5;\n    float r = length(c);\n    float a = atan(c.y, c.x);\n    float facets = max(2.0, floor(uFacets));\n    a = floor(a / 6.2831853 * facets + 0.5) / facets * 6.2831853;\n    float rings = floor(r * 8.0 + 0.5) / 8.0;\n    float rot = uTime * uSpeed;\n    vec2 refUV = vec2(cos(a + rot), sin(a + rot)) * rings * 0.8 * 0.5 + 0.5;\n    vec3 col = texture2D(uTexture, refUV).rgb;\n    float spec = pow(abs(sin(a * facets + uTime * 3.0)), 8.0);\n    col += vec3(spec * 0.4 * uShine);\n    col = mix(col, col * vec3(1.1, 1.0, 1.2), 0.3);\n    gl_FragColor = vec4(col, 1.0);\n}\n",
-  "params": { "uTime": 0.0 },
+  "params": {
+    "uTime": 0.0,
+    "uFacets": 12.0,
+    "uSpeed": 0.8,
+    "uShine": 1.0
+  },
   "paramDefs": {
-    "uFacets": { "label": "Facetas", "min": 4.0, "max": 32.0, "default": 12.0 },
-    "uSpeed":  { "label": "Rotación", "min": 0.0, "max": 3.0, "default": 0.8 },
-    "uShine":  { "label": "Brillo", "min": 0.0, "max": 2.0, "default": 1.0 },
-    "uTime":   { "label": "Animación", "min": 0.0, "max": 1.0, "default": 0.0 }
+    "uFacets": {
+      "label": "Facetas",
+      "min": 4.0,
+      "max": 32.0,
+      "default": 12.0
+    },
+    "uSpeed": {
+      "label": "Rotación",
+      "min": 0.0,
+      "max": 3.0,
+      "default": 0.8
+    },
+    "uShine": {
+      "label": "Brillo",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 1.0
+    },
+    "uTime": {
+      "label": "Animación",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0
+    }
   }
 }
