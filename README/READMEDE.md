@@ -4,6 +4,8 @@ Atemberaubende Grafik in deiner Handfläche. Verändere das Aussehen deines Andr
 
 [← Zurück zum Index](../README.md)
 
+📦 **[Neueste Version herunterladen →](https://github.com/LexusYTG/Demeter-reshader/releases)**
+
 ---
 
 ⚠️ **Getestete Mindesthardware**

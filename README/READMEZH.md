@@ -4,6 +4,8 @@
 
 [← 返回索引](../README.md)
 
+📦 **[下载最新版本 →](https://github.com/LexusYTG/Demeter-reshader/releases)**
+
 ---
 
 ⚠️ **已测试的最低硬件**

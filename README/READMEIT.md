@@ -4,6 +4,8 @@ Grafica sbalorditiva nel palmo della tua mano. Trasforma l'aspetto del tuo Andro
 
 [← Torna all'indice](../README.md)
 
+📦 **[Scarica l'ultima versione →](https://github.com/LexusYTG/Demeter-reshader/releases)**
+
 ---
 
 ⚠️ **Hardware minimo testato**

@@ -4,6 +4,8 @@ Dazzling graphics in the palm of your hand. Transform the look of your Android w
 
 [← Back to index](../README.md)
 
+📦 **[Download the latest release →](https://github.com/LexusYTG/Demeter-reshader/releases)**
+
 ---
 
 ⚠️ **Minimum tested hardware**

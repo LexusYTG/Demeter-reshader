@@ -4,6 +4,8 @@ Gráficos deslumbrantes en la palma de tu mano. Transforma la apariencia de tu A
 
 [← Volver al índice](../README.md)
 
+📦 **[Descargar la última versión →](https://github.com/LexusYTG/Demeter-reshader/releases)**
+
 ---
 
 ⚠️ **Hardware mínimo probado**

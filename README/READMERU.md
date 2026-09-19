@@ -4,6 +4,8 @@
 
 [← Вернуться к индексу](../README.md)
 
+📦 **[Скачать последнюю версию →](https://github.com/LexusYTG/Demeter-reshader/releases)**
+
 ---
 
 ⚠️ **Минимальное протестированное железо**
