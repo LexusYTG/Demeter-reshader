@@ -6,6 +6,8 @@ Gráficos deslumbrantes na palma da sua mão. Transforme a aparência do seu And
 
 📦 **[Baixar a última versão →](https://github.com/LexusYTG/Demeter-reshader/releases)**
 
+📘 **[Compilar o Demeter →](BUILDINGPT.md)**
+
 ---
 
 ⚠️ **Hardware mínimo testado**

@@ -6,6 +6,8 @@ Des graphismes éblouissants dans le creux de votre main. Transformez l'apparenc
 
 📦 **[Télécharger la dernière version →](https://github.com/LexusYTG/Demeter-reshader/releases)**
 
+📘 **[Compiler Demeter →](BUILDINGFR.md)**
+
 ---
 
 ⚠️ **Matériel minimum testé**

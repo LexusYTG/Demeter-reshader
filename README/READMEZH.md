@@ -6,6 +6,8 @@
 
 📦 **[下载最新版本 →](https://github.com/LexusYTG/Demeter-reshader/releases)**
 
+📘 **[编译 Demeter →](BUILDINGZH.md)**
+
 ---
 
 ⚠️ **已测试的最低硬件**

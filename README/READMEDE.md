@@ -6,6 +6,8 @@ Atemberaubende Grafik in deiner Handfläche. Verändere das Aussehen deines Andr
 
 📦 **[Neueste Version herunterladen →](https://github.com/LexusYTG/Demeter-reshader/releases)**
 
+📘 **[Demeter kompilieren →](BUILDINGDE.md)**
+
 ---
 
 ⚠️ **Getestete Mindesthardware**

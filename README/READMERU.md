@@ -6,6 +6,8 @@
 
 📦 **[Скачать последнюю версию →](https://github.com/LexusYTG/Demeter-reshader/releases)**
 
+📘 **[Сборка Demeter →](BUILDINGRU.md)**
+
 ---
 
 ⚠️ **Минимальное протестированное железо**
