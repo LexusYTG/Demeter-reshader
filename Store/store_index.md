@@ -448,6 +448,12 @@
 - **Enlace:** https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/main/Store/shaders/Motion-FrameGen.demeter
 - **Descripción:** Dibuja los frames intermedios hasta llegar a 60 fps o al doble de la entrada, usando la API de framegen de Demeter-7+. Si estás en Demeter-6 o inferior, no uses esto: no funciona.
 
+### Motion FrameGen v2
+- **Autor:** LexusYTG
+- **Enlace:** https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/main/Store/shaders/Motion-FrameGen-v2.demeter
+- **Descripción:** Segunda generación del framegen: genera frames intermedios para llegar a 60 fps estables o duplicar la tasa de entrada. Usa la API de framegen de Demeter-7+ — no funciona en Demeter-6 o inferior.
+
+
 ### Bloom
 - **Autor:** Pix
 - **Enlace:** https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/main/Store/shaders/Bloom.demeter
