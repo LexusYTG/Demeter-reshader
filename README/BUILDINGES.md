@@ -39,7 +39,7 @@ Si lográs portarlo a Gradle moderno y querés contribuir el port, mandá un PR.
 
 ## ¿Por qué Java 7?
 
-Porque el target real de Demeter son celulares de entrada con Android 13 y 4 GB de RAM (Unisoc T606, Helio G85, Mali-G57 MP1), no Pixels. Las lambdas, streams y try-with-resources de Java 8 traen overhead de alocación que en esos chips se siente. Java 7 no es un capricho: es la decisión técnica correcta para el target.
+Demeter se escribe y compila en un teléfono con AIDE, que usa JDK 7 y Gradle 1.x. No es una decisión de rendimiento — es la herramienta que el autor tiene y con la que compila a diario. Si querés portarlo a un toolchain moderno, mandá un PR.
 
 ---
 

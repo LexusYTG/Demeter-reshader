@@ -39,7 +39,7 @@ Demeter 的编写和编译基于：
 
 ## 为什么是 Java 7？
 
-因为 Demeter 的真实目标用户是 Android 13 + 4 GB RAM 的入门机型（Unisoc T606、Helio G85、Mali-G57 MP1），而不是 Pixel。Java 8 的 lambda、stream 和 try-with-resources 带来的分配开销在这些芯片上能明显感觉到。Java 7 不是任性，而是针对目标机型的正确技术决策。
+Demeter 是在手机上用 AIDE 编写和编译的，AIDE 使用 JDK 7 和 Gradle 1.x。这不是性能决策 —— 只是作者手头每天在用的工具。如果想移植到现代工具链，欢迎提交 PR。
 
 ---
 
