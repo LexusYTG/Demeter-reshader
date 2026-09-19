@@ -80,7 +80,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class MainActivity extends Activity implements Lang.Listener {
+public class MainActivity extends Activity implements Lang.Listener, Lang.LangListListener {
 
     private static final String TAG = "MainActivity";
 
@@ -206,6 +206,7 @@ public class MainActivity extends Activity implements Lang.Listener {
 
         Lang.init(this);
         Lang.addListener(this);
+        Lang.addLangListListener(this);
 
         setContentView(rootLayout());
 
@@ -235,6 +236,7 @@ public class MainActivity extends Activity implements Lang.Listener {
 
     @Override protected void onDestroy() {
         Lang.removeListener(this);
+        Lang.removeLangListListener(this);
         super.onDestroy();
         if (mUiHandler != null) mUiHandler.removeCallbacks(mUiUpdater);
         stopPreviewLoop();
@@ -270,6 +272,16 @@ public class MainActivity extends Activity implements Lang.Listener {
 					}
 					updateStatusCard();
 					refillParams();
+				}
+			});
+    }
+
+    @Override
+    public void onLanguagesChanged() {
+        runOnUiThread(new Runnable() {
+				@Override public void run() {
+					Toast.makeText(MainActivity.this,
+								   Lang.get(502), Toast.LENGTH_SHORT).show();
 				}
 			});
     }
@@ -379,6 +391,13 @@ public class MainActivity extends Activity implements Lang.Listener {
                 @Override public void onClick(DialogInterface d, int which) {
                     d.dismiss();
                     Lang.setLanguage(MainActivity.this, codes.get(which));
+                }
+            })
+            .setNeutralButton(Lang.get(500), new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) {
+                    Lang.refreshLanguages();
+                    Toast.makeText(MainActivity.this,
+                                   Lang.get(501), Toast.LENGTH_SHORT).show();
                 }
             })
             .setNegativeButton(Lang.get(18), null)

@@ -62,14 +62,20 @@ public final class Lang {
     private static final String KEY_ACTIVE_LANG  = "active_lang";
     private static final String KEY_DATA_PREFIX  = "lang_data_";
     private static final String KEY_LANGS_LIST   = "langs_list";
+    private static final String KEY_LAST_FETCH   = "lang_last_fetch_ms";
     private static final String REMOTE_URL =
 	"https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/main/Store/lang.json";
+
+    private static final long FETCH_INTERVAL_MS = 6 * 60 * 60 * 1000L; // 6 horas
 
     public static final String DEFAULT_LANG = "es";
 
     public interface Listener { void onLanguageChanged(); }
+    public interface LangListListener { void onLanguagesChanged(); }
 
     private static final List<Listener> sListeners = new CopyOnWriteArrayList<Listener>();
+    private static final List<LangListListener> sLangListListeners =
+	new CopyOnWriteArrayList<LangListListener>();
     private static final Handler sMainHandler = new Handler(Looper.getMainLooper());
     private static Context sAppContext;
     private static String  sActiveLang = DEFAULT_LANG;
@@ -83,7 +89,11 @@ public final class Lang {
         SharedPreferences sp = prefs();
         sActiveLang = sp.getString(KEY_ACTIVE_LANG, DEFAULT_LANG);
         if (!loadFromPrefs(sActiveLang)) loadFallback();
-        fetchRemoteAsync();
+
+        long lastFetch = sp.getLong(KEY_LAST_FETCH, 0L);
+        if (System.currentTimeMillis() - lastFetch > FETCH_INTERVAL_MS) {
+            fetchRemoteAsync();
+        }
     }
 
     public static String get(int id) {
@@ -142,6 +152,18 @@ public final class Lang {
         if (l != null) sListeners.remove(l);
     }
 
+    public static void addLangListListener(LangListListener l) {
+        if (l != null && !sLangListListeners.contains(l)) sLangListListeners.add(l);
+    }
+    public static void removeLangListListener(LangListListener l) {
+        if (l != null) sLangListListeners.remove(l);
+    }
+
+    /** Fuerza una descarga remota de la lista de idiomas. */
+    public static void refreshLanguages() {
+        fetchRemoteAsync();
+    }
+
     private static SharedPreferences prefs() {
         return sAppContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
@@ -152,6 +174,17 @@ public final class Lang {
 					for (Listener l : sListeners) {
 						try { l.onLanguageChanged(); }
 						catch (Exception e) { Log.w(TAG, "listener: " + e.getMessage()); }
+					}
+				}
+			});
+    }
+
+    private static void notifyLangListListeners() {
+        sMainHandler.post(new Runnable() {
+				@Override public void run() {
+					for (LangListListener l : sLangListListeners) {
+						try { l.onLanguagesChanged(); }
+						catch (Exception e) { Log.w(TAG, "langList: " + e.getMessage()); }
 					}
 				}
 			});
@@ -204,8 +237,10 @@ public final class Lang {
 							first = false;
 						}
 						ed.putString(KEY_LANGS_LIST, csv.toString());
+						ed.putLong(KEY_LAST_FETCH, System.currentTimeMillis());
 						ed.apply();
 						if (loadFromPrefs(sActiveLang)) notifyListeners();
+						notifyLangListListeners();
 					} catch (Exception e) {
 						Log.w(TAG, "fetchRemote: " + e.getMessage());
 					}
@@ -388,6 +423,9 @@ public final class Lang {
         FALLBACK.put(416, "No se pudo actualizar: %s");
         FALLBACK.put(417, "Espera a que termine la instalación");
         FALLBACK.put(418, "Ya hay una instalación en curso");
+        FALLBACK.put(500, "Actualizar lista");
+        FALLBACK.put(501, "Buscando idiomas…");
+        FALLBACK.put(502, "Lista de idiomas actualizada");
         FALLBACK.put(ID_LANG_ES, "Español");
         FALLBACK.put(ID_LANG_EN, "English");
         FALLBACK.put(ID_LANG_PT, "Português");
