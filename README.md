@@ -28,6 +28,12 @@
 
 ---
 
+---
+
+### 📦 Última versión · Latest release
+
+[**⬇️ Descargar la última release · Download the latest release →**](https://github.com/LexusYTG/Demeter-reshader/releases)
+
 Copyright © 2026 LexusYTG — leonpackpro@gmail.com
 
 </div>
