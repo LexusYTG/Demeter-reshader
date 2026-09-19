@@ -33,7 +33,7 @@ Demeter 的编写和编译基于：
 4. 把 `ANDROID_HOME` 指向 SDK。
 5. 运行 `gradle assembleDebug`。
 
-如果你在移植到现代 Gradle 时遇到错误，社区有一份由贡献者做出的移植分支。
+如果你成功移植到现代 Gradle 并想贡献这份移植，请提交 PR。欢迎贡献。
 
 ---
 

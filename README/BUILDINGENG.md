@@ -33,7 +33,7 @@ Anyone can reproduce this environment by installing those exact versions. AIDE i
 4. Set `ANDROID_HOME` to point to the SDK.
 5. Run `gradle assembleDebug`.
 
-If you hit errors porting it to modern Gradle, there's a community branch with the port made by contributors.
+If you manage to port it to modern Gradle and want to contribute the port, send a PR. Contributions are welcome.
 
 ---
 

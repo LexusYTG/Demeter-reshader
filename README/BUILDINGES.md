@@ -33,7 +33,7 @@ Cualquiera puede reproducir este entorno instalando esas versiones exactas. No h
 4. Configurá `ANDROID_HOME` apuntando al SDK.
 5. Ejecutá `gradle assembleDebug`.
 
-Si te encontrás con errores al portarlo a Gradle moderno, hay una rama comunitaria con el port hecha por colaboradores.
+Si lográs portarlo a Gradle moderno y querés contribuir el port, mandá un PR. Los aportes son bienvenidos.
 
 ---
 
