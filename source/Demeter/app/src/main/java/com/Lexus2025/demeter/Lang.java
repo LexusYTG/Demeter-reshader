@@ -51,6 +51,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -62,6 +63,7 @@ public final class Lang {
     private static final String KEY_ACTIVE_LANG  = "active_lang";
     private static final String KEY_DATA_PREFIX  = "lang_data_";
     private static final String KEY_LANGS_LIST   = "langs_list";
+    private static final String KEY_LANG_NAMES   = "lang_names";
     private static final String KEY_LAST_FETCH   = "lang_last_fetch_ms";
     private static final String REMOTE_URL =
 	"https://raw.githubusercontent.com/LexusYTG/Demeter-reshader/main/Store/lang.json";
@@ -69,6 +71,19 @@ public final class Lang {
     private static final long FETCH_INTERVAL_MS = 6 * 60 * 60 * 1000L; // 6 horas
 
     public static final String DEFAULT_LANG = "es";
+
+    /**
+     * Idiomas con fallback hardcodeado. Sólo se usan para:
+     *   · auto-detección del idioma del sistema cuando lang.json todavía no
+     *     se descargó (primer arranque sin red),
+     *   · mostrar el nombre del idioma en el selector antes de que llegue
+     *     el Langname desde lang.json.
+     *
+     * Una vez descargado lang.json, estas listas quedan en segundo plano.
+     */
+    private static final String[] BUILTIN_LANGS = {
+        "es", "en", "pt", "fr", "de", "it", "ja", "zh", "ru"
+    };
 
     public interface Listener { void onLanguageChanged(); }
     public interface LangListListener { void onLanguagesChanged(); }
@@ -81,19 +96,239 @@ public final class Lang {
     private static String  sActiveLang = DEFAULT_LANG;
     private static final Map<Integer, String> sStrings = new HashMap<Integer, String>();
 
+    // ========================================================================
+    // TRADUCCIONES HARDCODEADAS DEL ONBOARDING (IDs 600-604)
+    // ========================================================================
+    //
+    // Actúan SOLO como fallback. Si lang.json trae los IDs 600-604 para el
+    // idioma activo, esos valores ganan (applyOnboardingDefaults() sólo
+    // rellena los huecos, nunca sobreescribe).
+    //
+    // Se mantienen hardcodeados porque el aviso de primer inicio debe
+    // mostrarse ANTES de que el usuario haya podido descargar nada. Sin
+    // red en el primer arranque, no hay otra fuente.
+    // ========================================================================
+    private static final Map<String, Map<Integer, String>> ONBOARDING_BY_LANG =
+	new HashMap<String, Map<Integer, String>>();
+
+    private static void addOnboarding(String lang,
+                                      String t600, String t601,
+                                      String t602, String t603, String t604) {
+        Map<Integer, String> m = new HashMap<Integer, String>();
+        m.put(600, t600);
+        m.put(601, t601);
+        m.put(602, t602);
+        m.put(603, t603);
+        m.put(604, t604);
+        ONBOARDING_BY_LANG.put(lang, m);
+    }
+
+    static {
+        addOnboarding("es",
+					  "Advertencia importante",
+					  "Esta aplicación depende de la MediaProjection API de Android 13 o superior.",
+					  "Solo funciona en dispositivos que exponen la función de capturar una sola aplicación (single-app capture). Algunos fabricantes la ocultan o la deshabilitan por completo en sus ROMs.",
+					  "Si tu dispositivo no expone esta función, por favor, desinstala esta aplicación. La app no funcionará correctamente.",
+					  "Entendido");
+
+        addOnboarding("en",
+					  "Important warning",
+					  "This application depends on the MediaProjection API of Android 13 or higher.",
+					  "It only works on devices that expose the single-app capture feature. Some manufacturers hide it or disable it completely in their ROMs.",
+					  "If your device does not expose this feature, please uninstall this application. The app will not work correctly.",
+					  "Understood");
+
+        addOnboarding("pt",
+					  "Aviso importante",
+					  "Este aplicativo depende da API MediaProjection do Android 13 ou superior.",
+					  "Ele só funciona em dispositivos que expõem o recurso de captura de um único aplicativo (single-app capture). Alguns fabricantes o ocultam ou o desativam completamente em suas ROMs.",
+					  "Se o seu dispositivo não expõe esse recurso, por favor, desinstale este aplicativo. O app não funcionará corretamente.",
+					  "Entendido");
+
+        addOnboarding("fr",
+					  "Avertissement important",
+					  "Cette application dépend de l'API MediaProjection d'Android 13 ou supérieur.",
+					  "Elle ne fonctionne que sur les appareils qui exposent la fonction de capture d'une seule application (single-app capture). Certains fabricants la masquent ou la désactivent complètement dans leurs ROMs.",
+					  "Si votre appareil n'expose pas cette fonction, veuillez désinstaller cette application. L'application ne fonctionnera pas correctement.",
+					  "Compris");
+
+        addOnboarding("de",
+					  "Wichtiger Hinweis",
+					  "Diese App hängt von der MediaProjection-API von Android 13 oder höher ab.",
+					  "Sie funktioniert nur auf Geräten, die die Funktion zur Aufnahme einer einzelnen App (Single-App-Aufnahme) bereitstellen. Einige Hersteller verbergen oder deaktivieren sie vollständig in ihren ROMs.",
+					  "Wenn Ihr Gerät diese Funktion nicht bereitstellt, deinstallieren Sie bitte diese App. Die App funktioniert nicht ordnungsgemäß.",
+					  "Verstanden");
+
+        addOnboarding("it",
+					  "Avviso importante",
+					  "Questa applicazione dipende dall'API MediaProjection di Android 13 o superiore.",
+					  "Funziona solo su dispositivi che espongono la funzione di cattura di una singola app (single-app capture). Alcuni produttori la nascondono o la disabilitano completamente nelle loro ROM.",
+					  "Se il tuo dispositivo non espone questa funzione, disinstalla questa applicazione. L'app non funzionerà correttamente.",
+					  "Capito");
+
+        addOnboarding("ja",
+					  "重要な警告",
+					  "このアプリは Android 13 以上の MediaProjection API に依存しています。",
+					  "単一アプリのキャプチャ機能（single-app capture）を公開しているデバイスでのみ動作します。一部のメーカーはこの機能を隠したり、ROM で完全に無効化しています。",
+					  "お使いのデバイスがこの機能を公開していない場合は、このアプリをアンインストールしてください。アプリは正常に動作しません。",
+					  "了解");
+
+        addOnboarding("zh",
+					  "重要提示",
+					  "本应用依赖于 Android 13 或更高版本的 MediaProjection API。",
+					  "它仅在暴露单应用捕获（single-app capture）功能的设备上运行。一些厂商在其 ROM 中隐藏或完全禁用了该功能。",
+					  "如果您的设备未暴露此功能，请卸载本应用。应用将无法正常工作。",
+					  "明白");
+
+        addOnboarding("ru",
+					  "Важное предупреждение",
+					  "Это приложение зависит от API MediaProjection в Android 13 или выше.",
+					  "Оно работает только на устройствах, предоставляющих функцию захвата одного приложения (single-app capture). Некоторые производители скрывают или полностью отключают её в своих прошивках.",
+					  "Если ваше устройство не предоставляет эту функцию, пожалуйста, удалите это приложение. Приложение не будет работать должным образом.",
+					  "Понятно");
+    }
+
+    /**
+     * Rellena los IDs 600-604 con las traducciones hardcodeadas del idioma
+     * activo, SIN sobreescribir lo que ya haya en sStrings. Así, si lang.json
+     * trae esos IDs, mandan; si no, se usa el fallback hardcodeado; y si el
+     * idioma activo no está hardcodeado, cae a inglés.
+     */
+    private static void applyOnboardingDefaults() {
+        Map<Integer, String> ob = ONBOARDING_BY_LANG.get(sActiveLang);
+        if (ob == null) ob = ONBOARDING_BY_LANG.get("en");
+        if (ob == null) return;
+        synchronized (sStrings) {
+            for (Map.Entry<Integer, String> e : ob.entrySet()) {
+                if (!sStrings.containsKey(e.getKey())) {
+                    sStrings.put(e.getKey(), e.getValue());
+                }
+            }
+        }
+    }
+    // ========================================================================
+
     private Lang() { }
 
     public static synchronized void init(Context ctx) {
         if (ctx == null) return;
         sAppContext = ctx.getApplicationContext();
         SharedPreferences sp = prefs();
-        sActiveLang = sp.getString(KEY_ACTIVE_LANG, DEFAULT_LANG);
+
+        // Si el usuario nunca eligió un idioma, auto-detectamos el del
+        // sistema. Si ya eligió alguna vez, respetamos su elección.
+        if (sp.contains(KEY_ACTIVE_LANG)) {
+            sActiveLang = sp.getString(KEY_ACTIVE_LANG, DEFAULT_LANG);
+        } else {
+            String sysLang = detectSystemLanguage();
+            sActiveLang = (sysLang != null) ? sysLang : DEFAULT_LANG;
+        }
+
         if (!loadFromPrefs(sActiveLang)) loadFallback();
 
         long lastFetch = sp.getLong(KEY_LAST_FETCH, 0L);
         if (System.currentTimeMillis() - lastFetch > FETCH_INTERVAL_MS) {
             fetchRemoteAsync();
         }
+    }
+
+    /**
+     * Bootstrap síncrono pensado para el PRIMER arranque. Si no hay ningún
+     * idioma cacheado todavía, descarga lang.json de forma bloqueante con un
+     * timeout acotado. Es idempotente: si ya hay datos, no hace nada.
+     *
+     * Llamar SOLO desde un hilo de fondo (bloquea hasta `timeoutMs`).
+     */
+    public static void ensureFirstRunTranslations(long timeoutMs) {
+        SharedPreferences sp = prefs();
+        boolean hasData = !sp.getString(KEY_LANGS_LIST, "").isEmpty();
+        if (!hasData) {
+            fetchRemoteSync(timeoutMs);
+        }
+        synchronized (Lang.class) {
+            if (!sp.contains(KEY_ACTIVE_LANG)) {
+                String sysLang = detectSystemLanguage();
+                if (sysLang != null) sActiveLang = sysLang;
+            }
+            if (loadFromPrefs(sActiveLang)) {
+                sMainHandler.post(new Runnable() {
+						@Override public void run() { notifyListeners(); }
+					});
+            }
+        }
+    }
+
+    // ── Detección del idioma del sistema ───────────────────────────────────
+    //
+    // Prioridad:
+    //   1. Lista descargada de lang.json (langs_list).
+    //   2. Lista hardcodeada BUILTIN_LANGS — sólo útil antes de la primera
+    //      descarga o si lang.json falló (offline en primer arranque).
+    // Si el idioma del sistema no está en ninguna, devuelve null y el caller
+    // cae al idioma por defecto.
+    private static String detectSystemLanguage() {
+        try {
+            Locale loc = Locale.getDefault();
+            if (loc == null) return null;
+            String code = loc.getLanguage();
+            if (code == null || code.isEmpty()) return null;
+            code = code.toLowerCase(Locale.ROOT);
+
+            String csv = prefs().getString(KEY_LANGS_LIST, "");
+            if (!csv.isEmpty()) {
+                for (String s : csv.split(",")) {
+                    if (code.equals(s.trim())) return code;
+                }
+                // El idioma del sistema no está entre los descargados.
+                // No caemos a BUILTIN_LANGS porque eso auto-seleccionaría
+                // un idioma que quizá ya no exista en lang.json.
+                return null;
+            }
+
+            for (String supported : BUILTIN_LANGS) {
+                if (supported.equals(code)) return code;
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ── Fetch síncrono (bloqueante) ─────────────────────────────────────────
+    private static void fetchRemoteSync(long timeoutMs) {
+        try {
+            int t = (int) Math.max(1000L, timeoutMs);
+            String body = downloadWithTimeout(REMOTE_URL, t, t);
+            if (body == null || body.isEmpty()) return;
+
+            ParseResult parsed = parseLangFile(body);
+            if (parsed.strings.isEmpty()) return;
+
+            persistParsed(parsed, true);
+            Log.i(TAG, "fetchRemoteSync OK: " + parsed.strings.size() + " idioma(s)");
+        } catch (Exception e) {
+            Log.w(TAG, "fetchRemoteSync: " + e.getMessage());
+        }
+    }
+
+    private static String downloadWithTimeout(String urlStr, int connectMs, int readMs)
+	throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(urlStr).openConnection();
+        c.setConnectTimeout(connectMs);
+        c.setReadTimeout(readMs);
+        c.setRequestProperty("User-Agent", "DemeterApp/1.0");
+        c.connect();
+        try {
+            if (c.getResponseCode() != HttpURLConnection.HTTP_OK)
+                throw new Exception("HTTP " + c.getResponseCode());
+            BufferedReader r = new BufferedReader(
+                new InputStreamReader(c.getInputStream(), "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) sb.append(line).append('\n');
+            r.close();
+            return sb.toString();
+        } finally { c.disconnect(); }
     }
 
     public static String get(int id) {
@@ -123,17 +358,43 @@ public final class Lang {
         return new ArrayList<String>(set);
     }
 
+    /**
+     * Nombre para mostrar del idioma.
+     *
+     * Prioridad:
+     *   1. "Langname=" definido en lang.json para ese idioma.
+     *   2. Nombre hardcodeado del idioma en su propio idioma.
+     *   3. El código en mayúsculas ("AR", "XYZ").
+     */
     public static String getDisplayName(String langId) {
-        if ("es".equals(langId)) return get(ID_LANG_ES);
-        if ("en".equals(langId)) return get(ID_LANG_EN);
-        if ("pt".equals(langId)) return get(ID_LANG_PT);
-        if ("fr".equals(langId)) return get(ID_LANG_FR);
-        if ("de".equals(langId)) return get(ID_LANG_DE);
-        if ("it".equals(langId)) return get(ID_LANG_IT);
-        if ("ja".equals(langId)) return get(ID_LANG_JA);
-        if ("zh".equals(langId)) return get(ID_LANG_ZH);
-        if ("ru".equals(langId)) return get(ID_LANG_RU);
-        return langId.toUpperCase();
+        if (langId == null || langId.isEmpty()) return "";
+
+        String stored = getStoredLangName(langId);
+        if (stored != null && !stored.isEmpty()) return stored;
+
+        if ("es".equals(langId)) return "Español";
+        if ("en".equals(langId)) return "English";
+        if ("pt".equals(langId)) return "Português";
+        if ("fr".equals(langId)) return "Français";
+        if ("de".equals(langId)) return "Deutsch";
+        if ("it".equals(langId)) return "Italiano";
+        if ("ja".equals(langId)) return "日本語";
+        if ("zh".equals(langId)) return "中文";
+        if ("ru".equals(langId)) return "Русский";
+
+        return langId.toUpperCase(Locale.ROOT);
+    }
+
+    private static String getStoredLangName(String langId) {
+        String json = prefs().getString(KEY_LANG_NAMES, "");
+        if (json == null || json.isEmpty()) return null;
+        try {
+            JSONObject obj = new JSONObject(json);
+            String n = obj.optString(langId, null);
+            return (n == null || n.isEmpty()) ? null : n;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public static synchronized void setLanguage(Context ctx, String langId) {
@@ -203,7 +464,11 @@ public final class Lang {
                 catch (NumberFormatException ignored) { }
             }
             if (map.isEmpty()) return false;
-            synchronized (sStrings) { sStrings.clear(); sStrings.putAll(map); }
+            synchronized (sStrings) {
+                sStrings.clear();
+                sStrings.putAll(map);
+            }
+            applyOnboardingDefaults();
             return true;
         } catch (Exception e) {
             Log.w(TAG, "loadFromPrefs(" + langId + "): " + e.getMessage());
@@ -212,7 +477,11 @@ public final class Lang {
     }
 
     private static void loadFallback() {
-        synchronized (sStrings) { sStrings.clear(); sStrings.putAll(FALLBACK); }
+        synchronized (sStrings) {
+            sStrings.clear();
+            sStrings.putAll(FALLBACK);
+        }
+        applyOnboardingDefaults();
     }
 
     private static void fetchRemoteAsync() {
@@ -221,24 +490,10 @@ public final class Lang {
 					try {
 						String body = download(REMOTE_URL);
 						if (body == null || body.isEmpty()) return;
-						Map<String, Map<Integer, String>> parsed = parseLangFile(body);
-						if (parsed.isEmpty()) return;
-						SharedPreferences.Editor ed = prefs().edit();
-						StringBuilder csv = new StringBuilder();
-						boolean first = true;
-						for (Map.Entry<String, Map<Integer, String>> e : parsed.entrySet()) {
-							JSONObject obj = new JSONObject();
-							for (Map.Entry<Integer, String> s : e.getValue().entrySet()) {
-								obj.put(String.valueOf(s.getKey()), s.getValue());
-							}
-							ed.putString(KEY_DATA_PREFIX + e.getKey(), obj.toString());
-							if (!first) csv.append(',');
-							csv.append(e.getKey());
-							first = false;
-						}
-						ed.putString(KEY_LANGS_LIST, csv.toString());
-						ed.putLong(KEY_LAST_FETCH, System.currentTimeMillis());
-						ed.apply();
+						ParseResult parsed = parseLangFile(body);
+						if (parsed.strings.isEmpty()) return;
+						persistParsed(parsed, false);
+
 						if (loadFromPrefs(sActiveLang)) notifyListeners();
 						notifyLangListListeners();
 					} catch (Exception e) {
@@ -246,6 +501,37 @@ public final class Lang {
 					}
 				}
 			}, "LangFetch").start();
+    }
+
+    /**
+     * Guarda el resultado parseado en prefs.
+     * @param blocking true → commit(); false → apply().
+     */
+    private static void persistParsed(ParseResult parsed, boolean blocking)
+	throws Exception {
+        SharedPreferences.Editor ed = prefs().edit();
+        StringBuilder csv = new StringBuilder();
+        boolean first = true;
+        for (Map.Entry<String, Map<Integer, String>> e : parsed.strings.entrySet()) {
+            JSONObject obj = new JSONObject();
+            for (Map.Entry<Integer, String> s : e.getValue().entrySet()) {
+                obj.put(String.valueOf(s.getKey()), s.getValue());
+            }
+            ed.putString(KEY_DATA_PREFIX + e.getKey(), obj.toString());
+            if (!first) csv.append(',');
+            csv.append(e.getKey());
+            first = false;
+        }
+        ed.putString(KEY_LANGS_LIST, csv.toString());
+
+        JSONObject namesObj = new JSONObject();
+        for (Map.Entry<String, String> n : parsed.names.entrySet()) {
+            namesObj.put(n.getKey(), n.getValue());
+        }
+        ed.putString(KEY_LANG_NAMES, namesObj.toString());
+
+        ed.putLong(KEY_LAST_FETCH, System.currentTimeMillis());
+        if (blocking) ed.commit(); else ed.apply();
     }
 
     private static String download(String urlStr) throws Exception {
@@ -267,29 +553,81 @@ public final class Lang {
         } finally { c.disconnect(); }
     }
 
-    private static Map<String, Map<Integer, String>> parseLangFile(String body) {
-        Map<String, Map<Integer, String>> result = new HashMap<String, Map<Integer, String>>();
+    // ========================================================================
+    // Parser de lang.json
+    // ========================================================================
+    //
+    // Formato soportado:
+    //
+    //   langid=es{
+    //   Langname=Español
+    //   textid=1[Hola]
+    //   textid=2[Mundo]
+    //   }
+    //
+    // Notas:
+    //   · "Langname=" es opcional. Si falta, se usa el fallback hardcodeado.
+    //   · Puede estar en su propia línea o embebido: "langid=ar{Langname=العربية".
+    //   · El casing de "Langname" / "langid" / "textid" es indiferente.
+    // ========================================================================
+    private static final class ParseResult {
+        final Map<String, Map<Integer, String>> strings =
+		new HashMap<String, Map<Integer, String>>();
+        final Map<String, String> names = new HashMap<String, String>();
+    }
+
+    private static ParseResult parseLangFile(String body) {
+        ParseResult result = new ParseResult();
         String currentLang = null;
         Map<Integer, String> currentMap = null;
+
         for (String rawLine : body.split("\n")) {
             String line = rawLine.trim();
             if (line.isEmpty()) continue;
-            String lower = line.toLowerCase();
+            String lower = line.toLowerCase(Locale.ROOT);
+
+            // 1. Inicio de bloque: langid=xx{  (posible Langname embebido)
             if (lower.startsWith("langid=")) {
                 int eq = line.indexOf('=');
                 int brace = line.indexOf('{', eq);
                 if (eq >= 0 && brace > eq) {
                     currentLang = line.substring(eq + 1, brace).trim();
-                    currentMap = new HashMap<Integer, String>();
+                    currentMap  = new HashMap<Integer, String>();
                 } else if (eq >= 0) {
                     currentLang = line.substring(eq + 1).trim();
-                    currentMap = new HashMap<Integer, String>();
+                    currentMap  = new HashMap<Integer, String>();
                 }
-            } else if ("}".equals(line) && currentMap != null && currentLang != null) {
-                if (!currentMap.isEmpty()) result.put(currentLang, currentMap);
-                currentLang = null; currentMap = null;
-            } else if (currentMap != null && lower.startsWith("textid=")) {
-                int eq = line.indexOf('=');
+                // ¿Vino Langname= en la misma línea?
+                int lnIdx = lower.indexOf("langname=");
+                if (lnIdx >= 0 && currentLang != null) {
+                    String rest = line.substring(lnIdx + 9).trim();
+                    int br = rest.indexOf('}');
+                    if (br >= 0) rest = rest.substring(0, br).trim();
+                    if (!rest.isEmpty()) result.names.put(currentLang, rest);
+                }
+                continue;
+            }
+
+            // 2. Langname= (línea propia)
+            if (lower.startsWith("langname=") && currentLang != null) {
+                String rest = line.substring(9).trim();
+                int br = rest.indexOf('}');
+                if (br >= 0) rest = rest.substring(0, br).trim();
+                if (!rest.isEmpty()) result.names.put(currentLang, rest);
+                continue;
+            }
+
+            // 3. Cierre de bloque
+            if ("}".equals(line) && currentMap != null && currentLang != null) {
+                if (!currentMap.isEmpty()) result.strings.put(currentLang, currentMap);
+                currentLang = null;
+                currentMap  = null;
+                continue;
+            }
+
+            // 4. textid=N[...]
+            if (currentMap != null && lower.startsWith("textid=")) {
+                int eq  = line.indexOf('=');
                 int br1 = line.indexOf('[', eq);
                 int br2 = line.lastIndexOf(']');
                 if (eq >= 0 && br1 > eq && br2 > br1) {
@@ -302,6 +640,7 @@ public final class Lang {
         }
         return result;
     }
+    // ========================================================================
 
     public static final int ID_LANG_ES = 900, ID_LANG_EN = 901, ID_LANG_PT = 902,
 	ID_LANG_FR = 903, ID_LANG_DE = 904, ID_LANG_IT = 905,
@@ -426,14 +765,11 @@ public final class Lang {
         FALLBACK.put(500, "Actualizar lista");
         FALLBACK.put(501, "Buscando idiomas…");
         FALLBACK.put(502, "Lista de idiomas actualizada");
-        FALLBACK.put(ID_LANG_ES, "Español");
-        FALLBACK.put(ID_LANG_EN, "English");
-        FALLBACK.put(ID_LANG_PT, "Português");
-        FALLBACK.put(ID_LANG_FR, "Français");
-        FALLBACK.put(ID_LANG_DE, "Deutsch");
-        FALLBACK.put(ID_LANG_IT, "Italiano");
-        FALLBACK.put(ID_LANG_JA, "日本語");
-        FALLBACK.put(ID_LANG_ZH, "中文");
-        FALLBACK.put(ID_LANG_RU, "Русский");
+
+        // IDs 600-604: sólo vía ONBOARDING_BY_LANG (ver applyOnboardingDefaults).
+        // No van acá para evitar duplicación y permitir override desde lang.json.
+
+        // ID_LANG_* (900-908): sólo fallback de getDisplayName().
+        // No van acá porque getDisplayName() usa literales inline.
     }
 }

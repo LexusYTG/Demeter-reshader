@@ -40,6 +40,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -63,6 +64,7 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
@@ -96,6 +98,13 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
     private static final int REQ_STORE        = 107;
     private static final int REQ_FILTERS      = 108;
 
+    // ── Primer inicio: guía de compatibilidad ───────────────────────────────
+    private static final String ONBOARDING_PREFS      = "demeter_onboarding";
+    private static final String KEY_ONBOARDING_SHOWN  = "onboarding_shown_v1";
+
+    /** Timeout máximo para el bootstrap síncrono de traducciones. */
+    private static final long LANG_BOOTSTRAP_TIMEOUT_MS = 4500L;
+
     private enum CapState { IDLE, PROJECTING }
     private CapState mState = CapState.IDLE;
 
@@ -120,6 +129,9 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
 
     private SurfaceView mSurfacePreview;
     private TextView    mTvPreviewHint;
+
+    // Overlay de bienvenida, construido 100% con Java (sin Dialog del sistema).
+    private FrameLayout mOnboardingOverlay;
 
     private HandlerThread mPreviewThread;
     private Handler       mPreviewHandler;
@@ -217,6 +229,11 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
 
         mUiHandler = new Handler();
         mUiHandler.post(mUiUpdater);
+
+        // Prepara idioma + onboarding. Si es la primera ejecución, descarga
+        // las traducciones en segundo plano y luego muestra el aviso en el
+        // idioma del sistema del usuario.
+        prepareLanguageAndOnboarding();
     }
 
     @Override protected void onResume() {
@@ -272,6 +289,7 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
 					}
 					updateStatusCard();
 					refillParams();
+					refreshOnboardingTexts();
 				}
 			});
     }
@@ -299,7 +317,172 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         }
     }
 
+    @Override
+    public void onBackPressed() {
+        if (mOnboardingOverlay != null
+            && mOnboardingOverlay.getVisibility() == View.VISIBLE) {
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    // ========================================================================
+    // BOOTSTRAP DE IDIOMA + ONBOARDING
+    // ========================================================================
+    //
+    // El problema original: el aviso de primer inicio se mostraba siempre en
+    // español porque las traducciones todavía no estaban descargadas.
+    //
+    // Solución:
+    //   1. Si es la primera ejecución, descargamos lang.json de forma síncrona
+    //      en un hilo de fondo (con timeout acotado).
+    //   2. Lang detecta el idioma del sistema y, si hay traducción, la aplica.
+    //   3. Recién entonces mostramos el overlay, ya en el idioma correcto.
+    //   4. Si la descarga falla (offline), caemos al fallback español.
+    //   5. En ejecuciones posteriores, Lang.init() hace esto mismo de forma
+    //      asíncrona y auto-corrige apenas haya red.
+    // ========================================================================
+    private void prepareLanguageAndOnboarding() {
+        final SharedPreferences sp =
+            getSharedPreferences(ONBOARDING_PREFS, MODE_PRIVATE);
+        final boolean alreadyShown = sp.getBoolean(KEY_ONBOARDING_SHOWN, false);
+
+        // Si ya se mostró antes, no bloqueamos: Lang.init() ya maneja todo.
+        if (alreadyShown) return;
+
+        new Thread(new Runnable() {
+				@Override public void run() {
+					// Bloquea hasta LANG_BOOTSTRAP_TIMEOUT_MS si es el primer run.
+					// Si ya hay datos cacheados, retorna casi al instante.
+					Lang.ensureFirstRunTranslations(LANG_BOOTSTRAP_TIMEOUT_MS);
+
+					runOnUiThread(new Runnable() {
+							@Override public void run() {
+								// Refresca todo el UI con el idioma ya resuelto.
+								onLanguageChanged();
+								showOnboardingIfNeeded();
+							}
+						});
+				}
+			}, "LangBootstrap").start();
+    }
+    // ========================================================================
+
+    // ========================================================================
+    // OVERLAY DE PRIMER INICIO
+    // ========================================================================
+    //
+    // Se muestra UNA SOLA VEZ por instalación. Explica explícitamente:
+    //   · que la app depende de la MediaProjection API de Android 13+,
+    //   · que solo funciona en dispositivos que exponen "capturar una sola
+    //     aplicación" (single-app capture),
+    //   · y que si el dispositivo no expone esa función, se debe desinstalar.
+    //
+    // Todo el overlay está construido con Views de Java y colores de Skin,
+    // igual que el resto de la interfaz. Nada de Dialog/AlertDialog del
+    // sistema, para evitar que un tema claro del dispositivo arruine la
+    // legibilidad de los textos.
+    // ========================================================================
+    private View onboardingOverlay() {
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0xE6000000);
+        overlay.setClickable(true);
+        overlay.setFocusable(true);
+        overlay.setOnTouchListener(new View.OnTouchListener() {
+				@Override public boolean onTouch(View v, MotionEvent e) {
+					return true;
+				}
+			});
+        overlay.setVisibility(View.GONE);
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(Skin.roundRect(Skin.BG_SURFACE, this, 18));
+        int p = Skin.dp(this, 22);
+        card.setPadding(p, p, p, p);
+
+        TextView icon = Skin.text(this, "\u26A0", 44, Skin.DANGER, false);
+        icon.setGravity(Gravity.CENTER);
+        card.addView(icon);
+
+        TextView title = Skin.text(this, Lang.get(600), 19, Skin.TEXT_PRIMARY, true);
+        title.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams tLp = Skin.lp(MP, WC);
+        tLp.topMargin    = Skin.dp(this, 10);
+        tLp.bottomMargin = Skin.dp(this, 18);
+        card.addView(title, tLp);
+
+        TextView body1 = Skin.text(this, Lang.get(601), 15, Skin.TEXT_PRIMARY, true);
+        body1.setLineSpacing(Skin.dp(this, 4), 1f);
+        card.addView(body1);
+
+        TextView body2 = Skin.text(this, Lang.get(602), 13, Skin.TEXT_SECOND, false);
+        body2.setLineSpacing(Skin.dp(this, 4), 1f);
+        LinearLayout.LayoutParams b2Lp = Skin.lp(MP, WC);
+        b2Lp.topMargin = Skin.dp(this, 12);
+        card.addView(body2, b2Lp);
+
+        TextView warn = Skin.text(this, Lang.get(603), 14, Skin.DANGER, true);
+        warn.setLineSpacing(Skin.dp(this, 4), 1f);
+        LinearLayout.LayoutParams wLp = Skin.lp(MP, WC);
+        wLp.topMargin = Skin.dp(this, 16);
+        card.addView(warn, wLp);
+
+        TextView btn = Skin.text(this, Lang.get(604), 16, 0xFFFFFFFF, true);
+        btn.setGravity(Gravity.CENTER);
+        btn.setBackground(Skin.buttonBgSolid(this, Skin.ACCENT, Skin.ACCENT_DIM, 14));
+        btn.setClickable(true);
+        btn.setOnClickListener(new View.OnClickListener() {
+				@Override public void onClick(View v) {
+					getSharedPreferences(ONBOARDING_PREFS, MODE_PRIVATE)
+						.edit()
+						.putBoolean(KEY_ONBOARDING_SHOWN, true)
+						.apply();
+					mOnboardingOverlay.setVisibility(View.GONE);
+				}
+			});
+        LinearLayout.LayoutParams btnLp = Skin.lp(MP, Skin.dp(this, 50));
+        btnLp.topMargin = Skin.dp(this, 22);
+        card.addView(btn, btnLp);
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int maxW = Math.min(Skin.dp(this, 420),
+							(int)(dm.widthPixels * 0.90f));
+        FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(maxW, WC);
+        cardLp.gravity = Gravity.CENTER;
+        overlay.addView(card, cardLp);
+
+        return overlay;
+    }
+
+    private void showOnboardingIfNeeded() {
+        SharedPreferences sp = getSharedPreferences(ONBOARDING_PREFS, MODE_PRIVATE);
+        if (sp.getBoolean(KEY_ONBOARDING_SHOWN, false)) return;
+        if (mOnboardingOverlay != null) {
+            mOnboardingOverlay.setVisibility(View.VISIBLE);
+            mOnboardingOverlay.bringToFront();
+        }
+    }
+
+    /** Refresca los textos del overlay si el idioma cambia mientras está visible. */
+    private void refreshOnboardingTexts() {
+        if (mOnboardingOverlay == null) return;
+        if (mOnboardingOverlay.getChildCount() == 0) return;
+        View child = mOnboardingOverlay.getChildAt(0);
+        if (!(child instanceof LinearLayout)) return;
+        LinearLayout card = (LinearLayout) child;
+        if (card.getChildCount() < 6) return;
+        ((TextView) card.getChildAt(1)).setText(Lang.get(600));
+        ((TextView) card.getChildAt(2)).setText(Lang.get(601));
+        ((TextView) card.getChildAt(3)).setText(Lang.get(602));
+        ((TextView) card.getChildAt(4)).setText(Lang.get(603));
+        ((TextView) card.getChildAt(5)).setText(Lang.get(604));
+    }
+    // ========================================================================
+
     private View rootLayout() {
+        FrameLayout outer = new FrameLayout(this);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Skin.BG_ROOT);
@@ -351,7 +534,12 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         filtersLp.bottomMargin = Skin.dp(this, 14);
         root.addView(filtersButton(), filtersLp);
 
-        return root;
+        outer.addView(root, new FrameLayout.LayoutParams(MP, MP));
+
+        mOnboardingOverlay = (FrameLayout) onboardingOverlay();
+        outer.addView(mOnboardingOverlay, new FrameLayout.LayoutParams(MP, MP));
+
+        return outer;
     }
 
     private View topBar() {
