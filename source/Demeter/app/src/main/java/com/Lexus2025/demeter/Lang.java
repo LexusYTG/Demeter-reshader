@@ -72,15 +72,6 @@ public final class Lang {
 
     public static final String DEFAULT_LANG = "es";
 
-    /**
-     * Idiomas con fallback hardcodeado. Sólo se usan para:
-     *   · auto-detección del idioma del sistema cuando lang.json todavía no
-     *     se descargó (primer arranque sin red),
-     *   · mostrar el nombre del idioma en el selector antes de que llegue
-     *     el Langname desde lang.json.
-     *
-     * Una vez descargado lang.json, estas listas quedan en segundo plano.
-     */
     private static final String[] BUILTIN_LANGS = {
         "es", "en", "pt", "fr", "de", "it", "ja", "zh", "ru"
     };
@@ -98,15 +89,6 @@ public final class Lang {
 
     // ========================================================================
     // TRADUCCIONES HARDCODEADAS DEL ONBOARDING (IDs 600-604)
-    // ========================================================================
-    //
-    // Actúan SOLO como fallback. Si lang.json trae los IDs 600-604 para el
-    // idioma activo, esos valores ganan (applyOnboardingDefaults() sólo
-    // rellena los huecos, nunca sobreescribe).
-    //
-    // Se mantienen hardcodeados porque el aviso de primer inicio debe
-    // mostrarse ANTES de que el usuario haya podido descargar nada. Sin
-    // red en el primer arranque, no hay otra fuente.
     // ========================================================================
     private static final Map<String, Map<Integer, String>> ONBOARDING_BY_LANG =
 	new HashMap<String, Map<Integer, String>>();
@@ -188,12 +170,6 @@ public final class Lang {
 					  "Понятно");
     }
 
-    /**
-     * Rellena los IDs 600-604 con las traducciones hardcodeadas del idioma
-     * activo, SIN sobreescribir lo que ya haya en sStrings. Así, si lang.json
-     * trae esos IDs, mandan; si no, se usa el fallback hardcodeado; y si el
-     * idioma activo no está hardcodeado, cae a inglés.
-     */
     private static void applyOnboardingDefaults() {
         Map<Integer, String> ob = ONBOARDING_BY_LANG.get(sActiveLang);
         if (ob == null) ob = ONBOARDING_BY_LANG.get("en");
@@ -215,8 +191,6 @@ public final class Lang {
         sAppContext = ctx.getApplicationContext();
         SharedPreferences sp = prefs();
 
-        // Si el usuario nunca eligió un idioma, auto-detectamos el del
-        // sistema. Si ya eligió alguna vez, respetamos su elección.
         if (sp.contains(KEY_ACTIVE_LANG)) {
             sActiveLang = sp.getString(KEY_ACTIVE_LANG, DEFAULT_LANG);
         } else {
@@ -232,13 +206,6 @@ public final class Lang {
         }
     }
 
-    /**
-     * Bootstrap síncrono pensado para el PRIMER arranque. Si no hay ningún
-     * idioma cacheado todavía, descarga lang.json de forma bloqueante con un
-     * timeout acotado. Es idempotente: si ya hay datos, no hace nada.
-     *
-     * Llamar SOLO desde un hilo de fondo (bloquea hasta `timeoutMs`).
-     */
     public static void ensureFirstRunTranslations(long timeoutMs) {
         SharedPreferences sp = prefs();
         boolean hasData = !sp.getString(KEY_LANGS_LIST, "").isEmpty();
@@ -258,14 +225,6 @@ public final class Lang {
         }
     }
 
-    // ── Detección del idioma del sistema ───────────────────────────────────
-    //
-    // Prioridad:
-    //   1. Lista descargada de lang.json (langs_list).
-    //   2. Lista hardcodeada BUILTIN_LANGS — sólo útil antes de la primera
-    //      descarga o si lang.json falló (offline en primer arranque).
-    // Si el idioma del sistema no está en ninguna, devuelve null y el caller
-    // cae al idioma por defecto.
     private static String detectSystemLanguage() {
         try {
             Locale loc = Locale.getDefault();
@@ -279,9 +238,6 @@ public final class Lang {
                 for (String s : csv.split(",")) {
                     if (code.equals(s.trim())) return code;
                 }
-                // El idioma del sistema no está entre los descargados.
-                // No caemos a BUILTIN_LANGS porque eso auto-seleccionaría
-                // un idioma que quizá ya no exista en lang.json.
                 return null;
             }
 
@@ -294,7 +250,6 @@ public final class Lang {
         }
     }
 
-    // ── Fetch síncrono (bloqueante) ─────────────────────────────────────────
     private static void fetchRemoteSync(long timeoutMs) {
         try {
             int t = (int) Math.max(1000L, timeoutMs);
@@ -358,14 +313,6 @@ public final class Lang {
         return new ArrayList<String>(set);
     }
 
-    /**
-     * Nombre para mostrar del idioma.
-     *
-     * Prioridad:
-     *   1. "Langname=" definido en lang.json para ese idioma.
-     *   2. Nombre hardcodeado del idioma en su propio idioma.
-     *   3. El código en mayúsculas ("AR", "XYZ").
-     */
     public static String getDisplayName(String langId) {
         if (langId == null || langId.isEmpty()) return "";
 
@@ -420,7 +367,6 @@ public final class Lang {
         if (l != null) sLangListListeners.remove(l);
     }
 
-    /** Fuerza una descarga remota de la lista de idiomas. */
     public static void refreshLanguages() {
         fetchRemoteAsync();
     }
@@ -503,10 +449,6 @@ public final class Lang {
 			}, "LangFetch").start();
     }
 
-    /**
-     * Guarda el resultado parseado en prefs.
-     * @param blocking true → commit(); false → apply().
-     */
     private static void persistParsed(ParseResult parsed, boolean blocking)
 	throws Exception {
         SharedPreferences.Editor ed = prefs().edit();
@@ -553,23 +495,6 @@ public final class Lang {
         } finally { c.disconnect(); }
     }
 
-    // ========================================================================
-    // Parser de lang.json
-    // ========================================================================
-    //
-    // Formato soportado:
-    //
-    //   langid=es{
-    //   Langname=Español
-    //   textid=1[Hola]
-    //   textid=2[Mundo]
-    //   }
-    //
-    // Notas:
-    //   · "Langname=" es opcional. Si falta, se usa el fallback hardcodeado.
-    //   · Puede estar en su propia línea o embebido: "langid=ar{Langname=العربية".
-    //   · El casing de "Langname" / "langid" / "textid" es indiferente.
-    // ========================================================================
     private static final class ParseResult {
         final Map<String, Map<Integer, String>> strings =
 		new HashMap<String, Map<Integer, String>>();
@@ -586,7 +511,6 @@ public final class Lang {
             if (line.isEmpty()) continue;
             String lower = line.toLowerCase(Locale.ROOT);
 
-            // 1. Inicio de bloque: langid=xx{  (posible Langname embebido)
             if (lower.startsWith("langid=")) {
                 int eq = line.indexOf('=');
                 int brace = line.indexOf('{', eq);
@@ -597,7 +521,6 @@ public final class Lang {
                     currentLang = line.substring(eq + 1).trim();
                     currentMap  = new HashMap<Integer, String>();
                 }
-                // ¿Vino Langname= en la misma línea?
                 int lnIdx = lower.indexOf("langname=");
                 if (lnIdx >= 0 && currentLang != null) {
                     String rest = line.substring(lnIdx + 9).trim();
@@ -608,7 +531,6 @@ public final class Lang {
                 continue;
             }
 
-            // 2. Langname= (línea propia)
             if (lower.startsWith("langname=") && currentLang != null) {
                 String rest = line.substring(9).trim();
                 int br = rest.indexOf('}');
@@ -617,7 +539,6 @@ public final class Lang {
                 continue;
             }
 
-            // 3. Cierre de bloque
             if ("}".equals(line) && currentMap != null && currentLang != null) {
                 if (!currentMap.isEmpty()) result.strings.put(currentLang, currentMap);
                 currentLang = null;
@@ -625,7 +546,6 @@ public final class Lang {
                 continue;
             }
 
-            // 4. textid=N[...]
             if (currentMap != null && lower.startsWith("textid=")) {
                 int eq  = line.indexOf('=');
                 int br1 = line.indexOf('[', eq);
@@ -640,7 +560,6 @@ public final class Lang {
         }
         return result;
     }
-    // ========================================================================
 
     public static final int ID_LANG_ES = 900, ID_LANG_EN = 901, ID_LANG_PT = 902,
 	ID_LANG_FR = 903, ID_LANG_DE = 904, ID_LANG_IT = 905,
@@ -766,10 +685,10 @@ public final class Lang {
         FALLBACK.put(501, "Buscando idiomas…");
         FALLBACK.put(502, "Lista de idiomas actualizada");
 
-        // IDs 600-604: sólo vía ONBOARDING_BY_LANG (ver applyOnboardingDefaults).
-        // No van acá para evitar duplicación y permitir override desde lang.json.
-
-        // ID_LANG_* (900-908): sólo fallback de getDisplayName().
-        // No van acá porque getDisplayName() usa literales inline.
+        // IDs 600-604: vía ONBOARDING_BY_LANG.
+        // 700-702: selector de temas.
+        FALLBACK.put(700, "Seleccionar tema");
+        FALLBACK.put(701, "Buscando temas…");
+        FALLBACK.put(702, "Lista de temas actualizada");
     }
 }

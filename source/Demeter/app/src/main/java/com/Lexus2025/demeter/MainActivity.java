@@ -132,8 +132,6 @@ Themes.Listener {
     private FrameLayout mLanguageOverlay;
     private FrameLayout mThemeOverlay;
 
-    /** Tema con el que se construyó esta Activity. Se usa para detectar
-     *  cambios hechos en otras Activities y recrear automáticamente. */
     private String mAppliedThemeId;
 
     private HandlerThread mPreviewThread;
@@ -219,9 +217,6 @@ Themes.Listener {
             getSystemService(MEDIA_PROJECTION_SERVICE);
         mMods = new Mods(this);
 
-        // Temas antes que vistas: Skin.refreshFromTheme() ya corrió dentro
-        // de Themes.init(), así que todos los colores de Skin están listos
-        // cuando se construya el árbol de views.
         Themes.init(this);
         Themes.addListener(this);
         mAppliedThemeId = Themes.getActiveTheme();
@@ -246,8 +241,6 @@ Themes.Listener {
     @Override protected void onResume() {
         super.onResume();
 
-        // Si el tema cambió en otra Activity, recreamos para reconstruir
-        // los views con los colores nuevos.
         if (mAppliedThemeId != null
             && !mAppliedThemeId.equals(Themes.getActiveTheme())) {
             mAppliedThemeId = Themes.getActiveTheme();
@@ -736,11 +729,6 @@ Themes.Listener {
     // ========================================================================
     // OVERLAY: SELECTOR DE TEMAS
     // ========================================================================
-    //
-    // Cada fila muestra el nombre del tema y una vista previa de dos colores:
-    // un círculo con el ACCENT del tema y un rectángulo con el BG_SURFACE.
-    // Esto le da al usuario una idea visual antes de aplicar.
-    // ========================================================================
     private void showThemePicker() {
         if (mRootContainer == null) return;
         if (mThemeOverlay != null) dismissThemeDialog();
@@ -814,7 +802,7 @@ Themes.Listener {
 				@Override public void onClick(View v) {
 					Themes.refreshThemes();
 					Toast.makeText(MainActivity.this,
-								   Lang.get(501), Toast.LENGTH_SHORT).show();
+								   Lang.get(701), Toast.LENGTH_SHORT).show();
 					dismissThemeDialog();
 				}
 			});
@@ -853,11 +841,6 @@ Themes.Listener {
         mThemeOverlay = null;
     }
 
-    /**
-     * Fila de tema: [preview accent + preview surface] [nombre] [check si activo].
-     * El preview se dibuja con los colores PROPIOS del tema (no del activo),
-     * así el usuario ve cómo quedaría antes de aplicar.
-     */
     private LinearLayout makeThemeRow(final String themeId, boolean selected,
                                       View.OnClickListener onClick) {
         LinearLayout row = new LinearLayout(this);
@@ -877,7 +860,6 @@ Themes.Listener {
         row.setClickable(true);
         row.setOnClickListener(onClick);
 
-        // Preview: dos swatches con los colores reales del tema
         int previewAccent = Themes.getColorForTheme(themeId,
                                                     Themes.COLOR_ACCENT,
                                                     Skin.DEFAULT_ACCENT);
@@ -987,7 +969,7 @@ Themes.Listener {
         TextView title = Skin.text(this, "Demeter", 26, Skin.TEXT_PRIMARY, true);
         row.addView(title, Skin.lp(0, WC, 1f));
 
-        TextView themeBtn = makeIconButton("\uD83C\uDFA8"); // 🎨
+        TextView themeBtn = makeIconButton("\uD83C\uDFA8");
         themeBtn.setOnClickListener(new View.OnClickListener() {
 				@Override public void onClick(View v) { showThemePicker(); }
 			});
