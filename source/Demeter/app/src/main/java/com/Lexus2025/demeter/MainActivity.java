@@ -37,8 +37,6 @@ package com.Lexus2025.demeter;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -80,9 +78,11 @@ import android.widget.Toast;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
-public class MainActivity extends Activity implements Lang.Listener, Lang.LangListListener {
+public class MainActivity extends Activity implements Lang.Listener, Lang.LangListListener,
+Themes.Listener {
 
     private static final String TAG = "MainActivity";
 
@@ -98,12 +98,8 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
     private static final int REQ_STORE        = 107;
     private static final int REQ_FILTERS      = 108;
 
-    // ── Primer inicio: guía de compatibilidad ───────────────────────────────
     private static final String ONBOARDING_PREFS      = "demeter_onboarding";
     private static final String KEY_ONBOARDING_SHOWN  = "onboarding_shown_v1";
-
-    /** Timeout máximo para el bootstrap síncrono de traducciones. */
-    private static final long LANG_BOOTSTRAP_TIMEOUT_MS = 4500L;
 
     private enum CapState { IDLE, PROJECTING }
     private CapState mState = CapState.IDLE;
@@ -130,8 +126,15 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
     private SurfaceView mSurfacePreview;
     private TextView    mTvPreviewHint;
 
-    // Overlay de bienvenida, construido 100% con Java (sin Dialog del sistema).
+    private FrameLayout mRootContainer;
     private FrameLayout mOnboardingOverlay;
+    private FrameLayout mImportOverlay;
+    private FrameLayout mLanguageOverlay;
+    private FrameLayout mThemeOverlay;
+
+    /** Tema con el que se construyó esta Activity. Se usa para detectar
+     *  cambios hechos en otras Activities y recrear automáticamente. */
+    private String mAppliedThemeId;
 
     private HandlerThread mPreviewThread;
     private Handler       mPreviewHandler;
@@ -216,6 +219,13 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
             getSystemService(MEDIA_PROJECTION_SERVICE);
         mMods = new Mods(this);
 
+        // Temas antes que vistas: Skin.refreshFromTheme() ya corrió dentro
+        // de Themes.init(), así que todos los colores de Skin están listos
+        // cuando se construya el árbol de views.
+        Themes.init(this);
+        Themes.addListener(this);
+        mAppliedThemeId = Themes.getActiveTheme();
+
         Lang.init(this);
         Lang.addListener(this);
         Lang.addLangListListener(this);
@@ -230,14 +240,21 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         mUiHandler = new Handler();
         mUiHandler.post(mUiUpdater);
 
-        // Prepara idioma + onboarding. Si es la primera ejecución, descarga
-        // las traducciones en segundo plano y luego muestra el aviso en el
-        // idioma del sistema del usuario.
-        prepareLanguageAndOnboarding();
+        showOnboardingIfNeeded();
     }
 
     @Override protected void onResume() {
         super.onResume();
+
+        // Si el tema cambió en otra Activity, recreamos para reconstruir
+        // los views con los colores nuevos.
+        if (mAppliedThemeId != null
+            && !mAppliedThemeId.equals(Themes.getActiveTheme())) {
+            mAppliedThemeId = Themes.getActiveTheme();
+            recreate();
+            return;
+        }
+
         updateStatusCard();
         refillParams();
 
@@ -252,6 +269,7 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
     }
 
     @Override protected void onDestroy() {
+        Themes.removeListener(this);
         Lang.removeListener(this);
         Lang.removeLangListListener(this);
         super.onDestroy();
@@ -304,6 +322,16 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
 			});
     }
 
+    @Override
+    public void onThemeChanged() {
+        runOnUiThread(new Runnable() {
+				@Override public void run() {
+					mAppliedThemeId = Themes.getActiveTheme();
+					recreate();
+				}
+			});
+    }
+
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
@@ -323,65 +351,23 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
             && mOnboardingOverlay.getVisibility() == View.VISIBLE) {
             return;
         }
+        if (mImportOverlay != null) {
+            dismissImportDialog();
+            return;
+        }
+        if (mLanguageOverlay != null) {
+            dismissLanguageDialog();
+            return;
+        }
+        if (mThemeOverlay != null) {
+            dismissThemeDialog();
+            return;
+        }
         super.onBackPressed();
     }
 
     // ========================================================================
-    // BOOTSTRAP DE IDIOMA + ONBOARDING
-    // ========================================================================
-    //
-    // El problema original: el aviso de primer inicio se mostraba siempre en
-    // español porque las traducciones todavía no estaban descargadas.
-    //
-    // Solución:
-    //   1. Si es la primera ejecución, descargamos lang.json de forma síncrona
-    //      en un hilo de fondo (con timeout acotado).
-    //   2. Lang detecta el idioma del sistema y, si hay traducción, la aplica.
-    //   3. Recién entonces mostramos el overlay, ya en el idioma correcto.
-    //   4. Si la descarga falla (offline), caemos al fallback español.
-    //   5. En ejecuciones posteriores, Lang.init() hace esto mismo de forma
-    //      asíncrona y auto-corrige apenas haya red.
-    // ========================================================================
-    private void prepareLanguageAndOnboarding() {
-        final SharedPreferences sp =
-            getSharedPreferences(ONBOARDING_PREFS, MODE_PRIVATE);
-        final boolean alreadyShown = sp.getBoolean(KEY_ONBOARDING_SHOWN, false);
-
-        // Si ya se mostró antes, no bloqueamos: Lang.init() ya maneja todo.
-        if (alreadyShown) return;
-
-        new Thread(new Runnable() {
-				@Override public void run() {
-					// Bloquea hasta LANG_BOOTSTRAP_TIMEOUT_MS si es el primer run.
-					// Si ya hay datos cacheados, retorna casi al instante.
-					Lang.ensureFirstRunTranslations(LANG_BOOTSTRAP_TIMEOUT_MS);
-
-					runOnUiThread(new Runnable() {
-							@Override public void run() {
-								// Refresca todo el UI con el idioma ya resuelto.
-								onLanguageChanged();
-								showOnboardingIfNeeded();
-							}
-						});
-				}
-			}, "LangBootstrap").start();
-    }
-    // ========================================================================
-
-    // ========================================================================
     // OVERLAY DE PRIMER INICIO
-    // ========================================================================
-    //
-    // Se muestra UNA SOLA VEZ por instalación. Explica explícitamente:
-    //   · que la app depende de la MediaProjection API de Android 13+,
-    //   · que solo funciona en dispositivos que exponen "capturar una sola
-    //     aplicación" (single-app capture),
-    //   · y que si el dispositivo no expone esa función, se debe desinstalar.
-    //
-    // Todo el overlay está construido con Views de Java y colores de Skin,
-    // igual que el resto de la interfaz. Nada de Dialog/AlertDialog del
-    // sistema, para evitar que un tema claro del dispositivo arruine la
-    // legibilidad de los textos.
     // ========================================================================
     private View onboardingOverlay() {
         FrameLayout overlay = new FrameLayout(this);
@@ -389,9 +375,7 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         overlay.setClickable(true);
         overlay.setFocusable(true);
         overlay.setOnTouchListener(new View.OnTouchListener() {
-				@Override public boolean onTouch(View v, MotionEvent e) {
-					return true;
-				}
+				@Override public boolean onTouch(View v, MotionEvent e) { return true; }
 			});
         overlay.setVisibility(View.GONE);
 
@@ -446,8 +430,7 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         card.addView(btn, btnLp);
 
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int maxW = Math.min(Skin.dp(this, 420),
-							(int)(dm.widthPixels * 0.90f));
+        int maxW = Math.min(Skin.dp(this, 420), (int)(dm.widthPixels * 0.90f));
         FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(maxW, WC);
         cardLp.gravity = Gravity.CENTER;
         overlay.addView(card, cardLp);
@@ -464,7 +447,6 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         }
     }
 
-    /** Refresca los textos del overlay si el idioma cambia mientras está visible. */
     private void refreshOnboardingTexts() {
         if (mOnboardingOverlay == null) return;
         if (mOnboardingOverlay.getChildCount() == 0) return;
@@ -478,10 +460,465 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         ((TextView) card.getChildAt(4)).setText(Lang.get(603));
         ((TextView) card.getChildAt(5)).setText(Lang.get(604));
     }
+
+    // ========================================================================
+    // OVERLAY: IMPORTAR SHADER
+    // ========================================================================
+    private void showImportDialog() {
+        if (mRootContainer == null) return;
+        if (mImportOverlay != null) dismissImportDialog();
+
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0xE6000000);
+        overlay.setClickable(true);
+        overlay.setFocusable(true);
+        overlay.setOnTouchListener(new View.OnTouchListener() {
+				@Override public boolean onTouch(View v, MotionEvent e) { return true; }
+			});
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(Skin.roundRect(Skin.BG_SURFACE, this, 18));
+        int p = Skin.dp(this, 20);
+        card.setPadding(p, p, p, p);
+
+        TextView title = Skin.text(this, Lang.get(15), 17, Skin.TEXT_PRIMARY, true);
+        LinearLayout.LayoutParams titleLp = Skin.lp(MP, WC);
+        titleLp.bottomMargin = Skin.dp(this, 14);
+        card.addView(title, titleLp);
+
+        View div = new View(this);
+        div.setBackgroundColor(Skin.DIVIDER);
+        LinearLayout.LayoutParams divLp = Skin.lp(MP, Skin.dp(this, 1));
+        divLp.bottomMargin = Skin.dp(this, 10);
+        card.addView(div, divLp);
+
+        LinearLayout rowLocal = makeMenuRow(
+            "\uD83D\uDCC1", Lang.get(16),
+            new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    dismissImportDialog();
+                    importModLocal();
+                }
+            });
+        card.addView(rowLocal, Skin.lp(MP, Skin.dp(this, 54)));
+
+        LinearLayout rowStore = makeMenuRow(
+            "\uD83D\uDED2", Lang.get(17),
+            new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    dismissImportDialog();
+                    openStore();
+                }
+            });
+        LinearLayout.LayoutParams storeLp = Skin.lp(MP, Skin.dp(this, 54));
+        storeLp.topMargin = Skin.dp(this, 8);
+        card.addView(rowStore, storeLp);
+
+        TextView cancel = Skin.text(this, Lang.get(18), 14, Skin.TEXT_PRIMARY, true);
+        cancel.setGravity(Gravity.CENTER);
+        cancel.setBackground(Skin.buttonBgStroke(
+                                 this, Skin.BG_ELEV, Skin.DIVIDER, Skin.DIVIDER, 12, 1f));
+        cancel.setClickable(true);
+        cancel.setOnClickListener(new View.OnClickListener() {
+				@Override public void onClick(View v) { dismissImportDialog(); }
+			});
+        LinearLayout.LayoutParams cancelLp = Skin.lp(MP, Skin.dp(this, 46));
+        cancelLp.topMargin = Skin.dp(this, 16);
+        card.addView(cancel, cancelLp);
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int maxW = Math.min(Skin.dp(this, 380), (int)(dm.widthPixels * 0.88f));
+        FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(maxW, WC);
+        cardLp.gravity = Gravity.CENTER;
+        overlay.addView(card, cardLp);
+
+        mImportOverlay = overlay;
+        mRootContainer.addView(overlay, new FrameLayout.LayoutParams(MP, MP));
+    }
+
+    private void dismissImportDialog() {
+        if (mImportOverlay != null && mRootContainer != null) {
+            mRootContainer.removeView(mImportOverlay);
+        }
+        mImportOverlay = null;
+    }
+
+    private LinearLayout makeMenuRow(String iconGlyph, String label,
+                                     View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackground(Skin.buttonBgStroke(
+                              this, Skin.BG_ELEV, Skin.ACCENT_SOFT,
+                              Skin.DIVIDER, 12, 1f));
+        row.setClickable(true);
+        row.setOnClickListener(onClick);
+
+        int p = Skin.dp(this, 14);
+        row.setPadding(p, 0, p, 0);
+
+        TextView icon = Skin.text(this, iconGlyph, 20, Skin.TEXT_PRIMARY, false);
+        icon.setGravity(Gravity.CENTER);
+        row.addView(icon, Skin.lp(Skin.dp(this, 32), Skin.dp(this, 32)));
+
+        TextView tv = Skin.text(this, label, 15, Skin.TEXT_PRIMARY, true);
+        LinearLayout.LayoutParams tvLp = Skin.lp(0, WC, 1f);
+        tvLp.leftMargin = Skin.dp(this, 12);
+        row.addView(tv, tvLp);
+
+        TextView arrow = Skin.text(this, "\u203A", 22, Skin.TEXT_TERTIARY, false);
+        arrow.setGravity(Gravity.CENTER);
+        row.addView(arrow);
+
+        return row;
+    }
+
+    // ========================================================================
+    // OVERLAY: SELECTOR DE IDIOMAS
+    // ========================================================================
+    private void showLanguagePicker() {
+        if (mRootContainer == null) return;
+        if (mLanguageOverlay != null) dismissLanguageDialog();
+
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0xE6000000);
+        overlay.setClickable(true);
+        overlay.setFocusable(true);
+        overlay.setOnTouchListener(new View.OnTouchListener() {
+				@Override public boolean onTouch(View v, MotionEvent e) { return true; }
+			});
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(Skin.roundRect(Skin.BG_SURFACE, this, 18));
+        int p = Skin.dp(this, 20);
+        card.setPadding(p, p, p, p);
+
+        TextView title = Skin.text(this, Lang.get(25), 17, Skin.TEXT_PRIMARY, true);
+        LinearLayout.LayoutParams titleLp = Skin.lp(MP, WC);
+        titleLp.bottomMargin = Skin.dp(this, 14);
+        card.addView(title, titleLp);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+
+        final List<String> codes = Lang.getAvailableLanguages();
+        final String current = Lang.getActiveLanguage();
+
+        for (final String code : codes) {
+            boolean selected = code.equals(current);
+            LinearLayout row = makeLanguageRow(code, selected,
+                new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        dismissLanguageDialog();
+                        Lang.setLanguage(MainActivity.this, code);
+                    }
+                });
+            LinearLayout.LayoutParams rowLp = Skin.lp(MP, Skin.dp(this, 50));
+            rowLp.bottomMargin = Skin.dp(this, 4);
+            list.addView(row, rowLp);
+        }
+
+        scroll.addView(list, new FrameLayout.LayoutParams(MP, WC));
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int listMaxH = (int)(dm.heightPixels * 0.52f);
+        LinearLayout.LayoutParams scrollLp = Skin.lp(MP, listMaxH);
+        card.addView(scroll, scrollLp);
+
+        View div = new View(this);
+        div.setBackgroundColor(Skin.DIVIDER);
+        LinearLayout.LayoutParams divLp = Skin.lp(MP, Skin.dp(this, 1));
+        divLp.topMargin    = Skin.dp(this, 14);
+        divLp.bottomMargin = Skin.dp(this, 12);
+        card.addView(div, divLp);
+
+        LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+
+        TextView btnUpdate = Skin.text(this, Lang.get(500), 13, Skin.ACCENT, true);
+        btnUpdate.setGravity(Gravity.CENTER);
+        btnUpdate.setBackground(Skin.buttonBgStroke(
+                                    this, Skin.BG_ELEV, Skin.ACCENT_SOFT,
+                                    Skin.ACCENT_SOFT, 12, 1f));
+        btnUpdate.setClickable(true);
+        btnUpdate.setOnClickListener(new View.OnClickListener() {
+				@Override public void onClick(View v) {
+					Lang.refreshLanguages();
+					Toast.makeText(MainActivity.this,
+								   Lang.get(501), Toast.LENGTH_SHORT).show();
+					dismissLanguageDialog();
+				}
+			});
+        LinearLayout.LayoutParams updateLp = Skin.lp(0, Skin.dp(this, 46), 1f);
+        updateLp.rightMargin = Skin.dp(this, 6);
+        btnRow.addView(btnUpdate, updateLp);
+
+        TextView btnCancel = Skin.text(this, Lang.get(18), 13, Skin.TEXT_PRIMARY, true);
+        btnCancel.setGravity(Gravity.CENTER);
+        btnCancel.setBackground(Skin.buttonBgStroke(
+                                    this, Skin.BG_ELEV, Skin.DIVIDER,
+                                    Skin.DIVIDER, 12, 1f));
+        btnCancel.setClickable(true);
+        btnCancel.setOnClickListener(new View.OnClickListener() {
+				@Override public void onClick(View v) { dismissLanguageDialog(); }
+			});
+        LinearLayout.LayoutParams cancelLp = Skin.lp(0, Skin.dp(this, 46), 1f);
+        cancelLp.leftMargin = Skin.dp(this, 6);
+        btnRow.addView(btnCancel, cancelLp);
+
+        card.addView(btnRow, Skin.lp(MP, WC));
+
+        int maxW = Math.min(Skin.dp(this, 400), (int)(dm.widthPixels * 0.90f));
+        FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(maxW, WC);
+        cardLp.gravity = Gravity.CENTER;
+        overlay.addView(card, cardLp);
+
+        mLanguageOverlay = overlay;
+        mRootContainer.addView(overlay, new FrameLayout.LayoutParams(MP, MP));
+    }
+
+    private void dismissLanguageDialog() {
+        if (mLanguageOverlay != null && mRootContainer != null) {
+            mRootContainer.removeView(mLanguageOverlay);
+        }
+        mLanguageOverlay = null;
+    }
+
+    private LinearLayout makeLanguageRow(final String code, boolean selected,
+                                         View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        int p = Skin.dp(this, 12);
+
+        if (selected) {
+            row.setBackground(Skin.roundRectStroke(
+                                  Skin.ACCENT_SOFT, Skin.ACCENT, this, 12, 1.5f));
+        } else {
+            row.setBackground(Skin.roundRectStroke(
+                                  Skin.BG_ELEV, Skin.DIVIDER, this, 12, 1f));
+        }
+
+        row.setPadding(p, 0, p, 0);
+        row.setClickable(true);
+        row.setOnClickListener(onClick);
+
+        TextView chip = Skin.text(this, code.toUpperCase(Locale.ROOT), 10,
+                                  selected ? 0xFFFFFFFF : Skin.TEXT_SECOND, true);
+        chip.setGravity(Gravity.CENTER);
+        chip.setBackground(Skin.roundRect(
+                               selected ? Skin.ACCENT : Skin.ACCENT_SOFT, this, 6));
+        int hp = Skin.dp(this, 8);
+        int vp = Skin.dp(this, 4);
+        chip.setPadding(hp, vp, hp, vp);
+        row.addView(chip);
+
+        TextView name = Skin.text(this, Lang.getDisplayName(code), 15,
+                                  selected ? Skin.ACCENT : Skin.TEXT_PRIMARY, true);
+        LinearLayout.LayoutParams nameLp = Skin.lp(0, WC, 1f);
+        nameLp.leftMargin = Skin.dp(this, 12);
+        row.addView(name, nameLp);
+
+        if (selected) {
+            TextView check = Skin.text(this, "\u2713", 18, Skin.ACCENT, true);
+            check.setGravity(Gravity.CENTER);
+            row.addView(check);
+        }
+
+        return row;
+    }
+
+    // ========================================================================
+    // OVERLAY: SELECTOR DE TEMAS
+    // ========================================================================
+    //
+    // Cada fila muestra el nombre del tema y una vista previa de dos colores:
+    // un círculo con el ACCENT del tema y un rectángulo con el BG_SURFACE.
+    // Esto le da al usuario una idea visual antes de aplicar.
+    // ========================================================================
+    private void showThemePicker() {
+        if (mRootContainer == null) return;
+        if (mThemeOverlay != null) dismissThemeDialog();
+
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0xE6000000);
+        overlay.setClickable(true);
+        overlay.setFocusable(true);
+        overlay.setOnTouchListener(new View.OnTouchListener() {
+				@Override public boolean onTouch(View v, MotionEvent e) { return true; }
+			});
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(Skin.roundRect(Skin.BG_SURFACE, this, 18));
+        int p = Skin.dp(this, 20);
+        card.setPadding(p, p, p, p);
+
+        TextView title = Skin.text(this, Lang.get(700), 17, Skin.TEXT_PRIMARY, true);
+        LinearLayout.LayoutParams titleLp = Skin.lp(MP, WC);
+        titleLp.bottomMargin = Skin.dp(this, 14);
+        card.addView(title, titleLp);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+
+        final List<String> ids = Themes.getAvailableThemes();
+        final String current = Themes.getActiveTheme();
+
+        for (final String id : ids) {
+            boolean selected = id.equals(current);
+            LinearLayout row = makeThemeRow(id, selected,
+                new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        dismissThemeDialog();
+                        Themes.apply(MainActivity.this, id);
+                    }
+                });
+            LinearLayout.LayoutParams rowLp = Skin.lp(MP, Skin.dp(this, 54));
+            rowLp.bottomMargin = Skin.dp(this, 4);
+            list.addView(row, rowLp);
+        }
+
+        scroll.addView(list, new FrameLayout.LayoutParams(MP, WC));
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int listMaxH = (int)(dm.heightPixels * 0.52f);
+        LinearLayout.LayoutParams scrollLp = Skin.lp(MP, listMaxH);
+        card.addView(scroll, scrollLp);
+
+        View div = new View(this);
+        div.setBackgroundColor(Skin.DIVIDER);
+        LinearLayout.LayoutParams divLp = Skin.lp(MP, Skin.dp(this, 1));
+        divLp.topMargin    = Skin.dp(this, 14);
+        divLp.bottomMargin = Skin.dp(this, 12);
+        card.addView(div, divLp);
+
+        LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+
+        TextView btnUpdate = Skin.text(this, Lang.get(500), 13, Skin.ACCENT, true);
+        btnUpdate.setGravity(Gravity.CENTER);
+        btnUpdate.setBackground(Skin.buttonBgStroke(
+                                    this, Skin.BG_ELEV, Skin.ACCENT_SOFT,
+                                    Skin.ACCENT_SOFT, 12, 1f));
+        btnUpdate.setClickable(true);
+        btnUpdate.setOnClickListener(new View.OnClickListener() {
+				@Override public void onClick(View v) {
+					Themes.refreshThemes();
+					Toast.makeText(MainActivity.this,
+								   Lang.get(501), Toast.LENGTH_SHORT).show();
+					dismissThemeDialog();
+				}
+			});
+        LinearLayout.LayoutParams updateLp = Skin.lp(0, Skin.dp(this, 46), 1f);
+        updateLp.rightMargin = Skin.dp(this, 6);
+        btnRow.addView(btnUpdate, updateLp);
+
+        TextView btnCancel = Skin.text(this, Lang.get(18), 13, Skin.TEXT_PRIMARY, true);
+        btnCancel.setGravity(Gravity.CENTER);
+        btnCancel.setBackground(Skin.buttonBgStroke(
+                                    this, Skin.BG_ELEV, Skin.DIVIDER,
+                                    Skin.DIVIDER, 12, 1f));
+        btnCancel.setClickable(true);
+        btnCancel.setOnClickListener(new View.OnClickListener() {
+				@Override public void onClick(View v) { dismissThemeDialog(); }
+			});
+        LinearLayout.LayoutParams cancelLp = Skin.lp(0, Skin.dp(this, 46), 1f);
+        cancelLp.leftMargin = Skin.dp(this, 6);
+        btnRow.addView(btnCancel, cancelLp);
+
+        card.addView(btnRow, Skin.lp(MP, WC));
+
+        int maxW = Math.min(Skin.dp(this, 400), (int)(dm.widthPixels * 0.90f));
+        FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(maxW, WC);
+        cardLp.gravity = Gravity.CENTER;
+        overlay.addView(card, cardLp);
+
+        mThemeOverlay = overlay;
+        mRootContainer.addView(overlay, new FrameLayout.LayoutParams(MP, MP));
+    }
+
+    private void dismissThemeDialog() {
+        if (mThemeOverlay != null && mRootContainer != null) {
+            mRootContainer.removeView(mThemeOverlay);
+        }
+        mThemeOverlay = null;
+    }
+
+    /**
+     * Fila de tema: [preview accent + preview surface] [nombre] [check si activo].
+     * El preview se dibuja con los colores PROPIOS del tema (no del activo),
+     * así el usuario ve cómo quedaría antes de aplicar.
+     */
+    private LinearLayout makeThemeRow(final String themeId, boolean selected,
+                                      View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        int p = Skin.dp(this, 12);
+
+        if (selected) {
+            row.setBackground(Skin.roundRectStroke(
+                                  Skin.ACCENT_SOFT, Skin.ACCENT, this, 12, 1.5f));
+        } else {
+            row.setBackground(Skin.roundRectStroke(
+                                  Skin.BG_ELEV, Skin.DIVIDER, this, 12, 1f));
+        }
+
+        row.setPadding(p, 0, p, 0);
+        row.setClickable(true);
+        row.setOnClickListener(onClick);
+
+        // Preview: dos swatches con los colores reales del tema
+        int previewAccent = Themes.getColorForTheme(themeId,
+                                                    Themes.COLOR_ACCENT,
+                                                    Skin.DEFAULT_ACCENT);
+        int previewSurface = Themes.getColorForTheme(themeId,
+                                                     Themes.COLOR_BG_SURFACE,
+                                                     Skin.DEFAULT_BG_SURFACE);
+
+        FrameLayout preview = new FrameLayout(this);
+        preview.setBackground(Skin.roundRectStroke(
+                                  previewSurface, Skin.DIVIDER, this, 8, 1f));
+
+        View accentDot = new View(this);
+        accentDot.setBackground(Skin.circle(previewAccent));
+        FrameLayout.LayoutParams dotLp = new FrameLayout.LayoutParams(
+            Skin.dp(this, 18), Skin.dp(this, 18));
+        dotLp.gravity = Gravity.CENTER;
+        preview.addView(accentDot, dotLp);
+
+        LinearLayout.LayoutParams previewLp = Skin.lp(Skin.dp(this, 40), Skin.dp(this, 40));
+        previewLp.rightMargin = Skin.dp(this, 12);
+        row.addView(preview, previewLp);
+
+        TextView name = Skin.text(this, Themes.getDisplayName(themeId), 15,
+                                  selected ? Skin.ACCENT : Skin.TEXT_PRIMARY, true);
+        LinearLayout.LayoutParams nameLp = Skin.lp(0, WC, 1f);
+        row.addView(name, nameLp);
+
+        if (selected) {
+            TextView check = Skin.text(this, "\u2713", 18, Skin.ACCENT, true);
+            check.setGravity(Gravity.CENTER);
+            row.addView(check);
+        }
+
+        return row;
+    }
+
     // ========================================================================
 
     private View rootLayout() {
         FrameLayout outer = new FrameLayout(this);
+        mRootContainer = outer;
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -550,11 +987,19 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         TextView title = Skin.text(this, "Demeter", 26, Skin.TEXT_PRIMARY, true);
         row.addView(title, Skin.lp(0, WC, 1f));
 
-        TextView langBtn = makeIconButton("\uD83C\uDF10");
-        langBtn.setOnClickListener(new View.OnClickListener() {
-				@Override public void onClick(View v) { showLanguageDialog(); }
+        TextView themeBtn = makeIconButton("\uD83C\uDFA8"); // 🎨
+        themeBtn.setOnClickListener(new View.OnClickListener() {
+				@Override public void onClick(View v) { showThemePicker(); }
 			});
-        row.addView(langBtn, Skin.lp(Skin.dp(this, 44), Skin.dp(this, 44)));
+        row.addView(themeBtn, Skin.lp(Skin.dp(this, 44), Skin.dp(this, 44)));
+
+        TextView langBtn = makeIconButton("\uD83C\uDF10");
+        LinearLayout.LayoutParams langLp = Skin.lp(Skin.dp(this, 44), Skin.dp(this, 44));
+        langLp.leftMargin = Skin.dp(this, 8);
+        langBtn.setOnClickListener(new View.OnClickListener() {
+				@Override public void onClick(View v) { showLanguagePicker(); }
+			});
+        row.addView(langBtn, langLp);
 
         TextView addBtn = makeIconButton("+");
         addBtn.setId(android.R.id.button1);
@@ -563,33 +1008,6 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         row.addView(addBtn, addLp);
 
         return row;
-    }
-
-    private void showLanguageDialog() {
-        final List<String> codes = Lang.getAvailableLanguages();
-        final CharSequence[] labels = new CharSequence[codes.size()];
-        int checked = 0;
-        for (int i = 0; i < codes.size(); i++) {
-            labels[i] = Lang.getDisplayName(codes.get(i));
-            if (codes.get(i).equals(Lang.getActiveLanguage())) checked = i;
-        }
-        new AlertDialog.Builder(this)
-            .setTitle(Lang.get(25))
-            .setSingleChoiceItems(labels, checked, new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface d, int which) {
-                    d.dismiss();
-                    Lang.setLanguage(MainActivity.this, codes.get(which));
-                }
-            })
-            .setNeutralButton(Lang.get(500), new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface d, int w) {
-                    Lang.refreshLanguages();
-                    Toast.makeText(MainActivity.this,
-                                   Lang.get(501), Toast.LENGTH_SHORT).show();
-                }
-            })
-            .setNegativeButton(Lang.get(18), null)
-            .show();
     }
 
     private View statusCard() {
@@ -952,7 +1370,7 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         View importBtn = findViewById(android.R.id.button1);
         if (importBtn != null) {
             importBtn.setOnClickListener(new View.OnClickListener() {
-					@Override public void onClick(View v) { importMod(); }
+					@Override public void onClick(View v) { showImportDialog(); }
 				});
         }
 
@@ -1204,19 +1622,6 @@ public class MainActivity extends Activity implements Lang.Listener, Lang.LangLi
         stopService(new Intent(this, CaptureService.class));
         setState(CapState.IDLE);
         CaptureService.setMods(null);
-    }
-
-    private void importMod() {
-        new AlertDialog.Builder(this)
-            .setTitle(Lang.get(15))
-            .setItems(new CharSequence[]{Lang.get(16), Lang.get(17)},
-			new DialogInterface.OnClickListener() {
-				@Override public void onClick(DialogInterface d, int which) {
-					if (which == 0) importModLocal(); else openStore();
-				}
-			})
-            .setNegativeButton(Lang.get(18), null)
-            .show();
     }
 
     private void importModLocal() {
